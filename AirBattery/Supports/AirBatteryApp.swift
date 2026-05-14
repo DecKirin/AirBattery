@@ -84,6 +84,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         completionHandler()
     }
     
+    /// The SwiftUI settings `Window` is the only document-style window; without this, closing it is treated as “last window closed” and quits the whole app (menu bar item disappears).
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         // 用户点击 Dock 图标时会调用这个方法
         if showOn == "sbar" || showOn == "none" {
@@ -93,6 +98,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         if dockWindow.isVisible {
             dockWindow.orderOut(nil)
         } else {
+            orderOutAirBatterySettingsWindow()
             var allDevices = AirBatteryModel.getAll()
             let ibStatus = InternalBattery.status
             if ibStatus.hasBattery { allDevices.insert(ib2ab(ibStatus), at: 0) }
@@ -156,7 +162,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
             dockWindow.contentView?.layer?.masksToBounds = true
             dockWindow.makeKeyAndOrderFront(nil)
         }
-        return true
+        // Returning true lets AppKit run default reopen handling, which also fronts the SwiftUI settings `Window` — so Dock would show both panels.
+        return false
     }
     
     func applicationWillFinishLaunching(_ notification: Notification) {

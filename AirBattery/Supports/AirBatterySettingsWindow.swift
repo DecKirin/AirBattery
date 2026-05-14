@@ -74,3 +74,10 @@ final class AirBatterySettingsWindowOpener {
 func openAirBatterySettingsWindow() {
     AirBatterySettingsWindowOpener.shared.open()
 }
+
+/// Hides the settings `Window` without quitting the app (e.g. before showing the Dock battery panel).
+func orderOutAirBatterySettingsWindow() {
+    for w in NSApp.windows where w.title.contains("AirBattery") && w.title.contains("Settings") {
+        w.orderOut(nil)
+    }
+}

@@ -317,18 +317,19 @@ struct popover: View {
         ZStack{
             if fromDock { Color.clear.background(BlurView(material: .menu)) }
             VStack(spacing: 0) {
-                HStack {
-                    Text("AirBattery")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.primary)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 14)
-                .padding(.top, fromDock ? 8 : 10)
-                .padding(.bottom, 4)
-                Divider()
-                    .opacity(0.35)
-                    .padding(.horizontal, 12)
+//                HStack {
+//                    Text("AirBattery")
+//                        .font(.system(size: 15, weight: .semibold))
+//                        .foregroundColor(.primary)
+//                    Spacer(minLength: 0)
+//                }
+//                .padding(.horizontal, 14)
+//                .padding(.top, fromDock ? 8 : 10)
+//                .padding(.bottom, 4)
+//                Divider()
+//                    .opacity(0.35)
+//                    .padding(.horizontal, 12)
+                Spacer().frame(height: 10)
                 VStack(alignment: .leading, spacing: 0) {
                     if allDevices.count < 1 && hiddenDevices.count < 1{
                         HStack{
@@ -698,9 +699,11 @@ struct popover: View {
                         }
                     }
                 }
+                Spacer().frame(height: 10)
                 Divider()
                     .opacity(0.35)
                     .padding(.horizontal, 12)
+                Spacer().frame(height: 10)
                 VStack(spacing: 0) {
                     Button(action: {
                         dockWindow.orderOut(nil)

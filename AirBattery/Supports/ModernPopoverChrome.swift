@@ -9,13 +9,19 @@
 import SwiftUI
 import AppKit
 
-/// Hover pill transparency. **macOS 12+:** `1.0` matches system; lower = more see-through (e.g. `0.65`).
-private let menuPopoverHighlightFillOpacity: Double = 0.65
+/// Continuous corner radius for row highlights (Wi‑Fi “Known Network” / settings list style).
+private let menuPopoverRowHighlightCornerRadius: CGFloat = 12
 
-/// **macOS 11** fallback uses `blackWhite` × this alpha when the row is hovered.
-private let menuPopoverHighlightLegacyAlpha: Double = 0.15
+/// Light gray ~ `#E5E5E5` for hover/selection in light appearance; subtle lift in dark.
+private func menuPopoverRowHighlightFillColor(isActive: Bool) -> Color {
+    guard isActive else { return .clear }
+    if NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+        return Color.white.opacity(0.1)
+    }
+    return Color.gray.opacity(0.2)
+}
 
-/// Rounded hover / highlight pill matching system menu list rows (e.g. Bluetooth popover).
+/// Rounded hover / highlight pill matching Wi‑Fi settings–style list rows (large radius, solid light gray).
 extension View {
     @ViewBuilder
     func menuPopoverRowHighlight(isActive: Bool, verticalInset: CGFloat = 5) -> some View {
@@ -25,13 +31,10 @@ extension View {
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background {
-                    if isActive {
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .fill(Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
-                                .opacity(menuPopoverHighlightFillOpacity))
-                    }
+                    RoundedRectangle(cornerRadius: menuPopoverRowHighlightCornerRadius, style: .continuous)
+                        .fill(menuPopoverRowHighlightFillColor(isActive: isActive))
                 }
-                .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: menuPopoverRowHighlightCornerRadius, style: .continuous))
                 .padding(.horizontal, 9)
                 .padding(.vertical, 0.5)
         } else {
@@ -40,8 +43,8 @@ extension View {
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isActive ? Color.blackWhite.opacity(menuPopoverHighlightLegacyAlpha) : Color.clear)
+                    RoundedRectangle(cornerRadius: menuPopoverRowHighlightCornerRadius, style: .continuous)
+                        .fill(menuPopoverRowHighlightFillColor(isActive: isActive))
                 )
                 .padding(.horizontal, 9)
                 .padding(.vertical, 0.5)
