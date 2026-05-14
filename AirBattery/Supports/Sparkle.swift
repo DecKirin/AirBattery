@@ -37,25 +37,24 @@ struct CheckForUpdatesView: View {
     }
 }
 
+/// Sparkle updater toggles for embedding in a grouped `Form`.
 struct UpdaterSettingsView: View {
     private let updater: SPUUpdater
-    
     @State private var automaticallyChecksForUpdates: Bool
     @State private var automaticallyDownloadsUpdates: Bool
-    
+
     init(updater: SPUUpdater) {
         self.updater = updater
         self.automaticallyChecksForUpdates = updater.automaticallyChecksForUpdates
         self.automaticallyDownloadsUpdates = updater.automaticallyDownloadsUpdates
     }
-    
+
     var body: some View {
-        SToggle("Automatically check for updates", isOn: $automaticallyChecksForUpdates)
+        Toggle("Automatically check for updates", isOn: $automaticallyChecksForUpdates)
             .onChange(of: automaticallyChecksForUpdates) { newValue in
                 updater.automaticallyChecksForUpdates = newValue
             }
-        Divider().opacity(0.5)
-        SToggle("Automatically download updates", isOn: $automaticallyDownloadsUpdates)
+        Toggle("Automatically download updates", isOn: $automaticallyDownloadsUpdates)
             .disabled(!automaticallyChecksForUpdates)
             .onChange(of: automaticallyDownloadsUpdates) { newValue in
                 updater.automaticallyDownloadsUpdates = newValue

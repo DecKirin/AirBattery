@@ -44,6 +44,7 @@ struct SForm<Content: View>: View {
     }
 }
 
+/// Legacy settings chrome; on macOS 13+ prefer `Form` + `Section` + `.formStyle(.grouped)` in settings panes.
 struct SGroupBox<Content: View>: View {
     var label: LocalizedStringKey? = nil
     @ViewBuilder let content: () -> Content

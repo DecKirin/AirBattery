@@ -9,42 +9,135 @@ import SwiftUI
 import ServiceManagement
 import WidgetKit
 
-struct SettingsView: View {
-    @State private var selectedItem: String? = "General"
-    @AppStorage("showDebug") var showDebug: Bool = false
-    
+// MARK: - Shared settings behavior
+
+fileprivate func applyShowOnValue(_ newValue: String) {
+    switch newValue {
+    case "sbar":
+        statusBarItem.isVisible = true
+        for i in pinnedItems { i.isVisible = true }
+        NSApp.setActivationPolicy(.accessory)
+    case "both":
+        statusBarItem.isVisible = true
+        for i in pinnedItems { i.isVisible = true }
+        NSApp.setActivationPolicy(.regular)
+    case "dock":
+        statusBarItem.isVisible = false
+        for i in pinnedItems { i.isVisible = false }
+        NSApp.setActivationPolicy(.regular)
+    default:
+        statusBarItem.isVisible = false
+        for i in pinnedItems { i.isVisible = false }
+        NSApp.setActivationPolicy(.accessory)
+    }
+    if newValue == "dock" || newValue == "both" {
+        _ = createAlert(title: "AirBattery Tips".local, message: "Displaying AirBattery on the Dock will consume more power, it is better to use Menu Bar mode or Widgets.".local, button1: "OK").runModal()
+    }
+}
+
+/// Sidebar panes for the settings window.
+enum SettingsPane: String, Hashable, Identifiable, CaseIterable {
+    case general
+    case display
+    case nearbility
+    case nearcast
+    case widget
+    case blocklist
+    case debug
+
+    var id: String { rawValue }
+
+    var sidebarTitle: String {
+        switch self {
+        case .general: "General"
+        case .display: "Menu Bar & Dock"
+        case .nearbility: "Nearbility"
+        case .nearcast: "Nearcast"
+        case .widget: "Widget"
+        case .blocklist: "Blocklist"
+        case .debug: "Debug"
+        }
+    }
+
+    var sidebarImage: String {
+        switch self {
+        case .general: "gear"
+        case .display: "dock"
+        case .nearbility: "nearbility"
+        case .nearcast: "nearcast"
+        case .widget: "widget"
+        case .blocklist: "blacklist"
+        case .debug: "debug"
+        }
+    }
+
+    static func sidebarPanes(includeDebug: Bool) -> [SettingsPane] {
+        var panes = Self.allCases.filter { $0 != .debug }
+        if includeDebug { panes.append(.debug) }
+        return panes
+    }
+}
+
+@ViewBuilder
+private func settingsPaneDetail(for pane: SettingsPane, selection: Binding<SettingsPane>) -> some View {
+    switch pane {
+    case .general: GeneralView()
+    case .display: DisplayView()
+    case .nearbility: NearbilityView()
+    case .nearcast: NearcastView()
+    case .widget: WidgetView()
+    case .blocklist: BlacklistView()
+    case .debug: DebugView(selectedPane: selection)
+    }
+}
+
+private struct SettingsNavigationSplit: View {
+    @Binding var selection: SettingsPane
+    var showDebug: Bool
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
     var body: some View {
-        NavigationView {
-            List(selection: $selectedItem) {
-                NavigationLink(destination: GeneralView(), tag: "General", selection: $selectedItem) {
-                    Label("General", image: "gear")
-                }
-                NavigationLink(destination: DisplayView(), tag: "Display", selection: $selectedItem) {
-                    Label("Menu Bar & Dock", image: "dock")
-                }
-                NavigationLink(destination: NearbilityView(), tag: "Nearbility", selection: $selectedItem) {
-                    Label("Nearbility", image: "nearbility")
-                }
-                NavigationLink(destination: NearcastView(), tag: "Nearcast", selection: $selectedItem) {
-                    Label("Nearcast", image: "nearcast")
-                }
-                NavigationLink(destination: WidgetView(), tag: "Widget", selection: $selectedItem) {
-                    Label("Widget", image: "widget")
-                }
-                NavigationLink(destination: BlacklistView(), tag: "Blocklist", selection: $selectedItem) {
-                    Label("Blocklist", image: "blacklist")
-                }
-                if showDebug {
-                    NavigationLink(destination: DebugView(selectedItem: $selectedItem), tag: "Debug", selection: $selectedItem) {
-                        Label("Debug", image: "debug")
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            List(selection: $selection) {
+                Section {
+                    ForEach(SettingsPane.sidebarPanes(includeDebug: showDebug)) { pane in
+                        NavigationLink(value: pane) {
+                            Label(pane.sidebarTitle, image: pane.sidebarImage)
+                        }
                     }
                 }
             }
             .listStyle(.sidebar)
-            .padding(.top, 9)
+            .scrollContentBackground(.hidden)
+            .background {
+                Rectangle()
+                    .fill(.regularMaterial)
+                    .ignoresSafeArea(edges: [.top, .leading, .bottom])
+            }
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 280)
+        } detail: {
+            NavigationStack {
+                settingsPaneDetail(for: selection, selection: $selection)
+                    .navigationTitle(selection.sidebarTitle)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
         }
-        .frame(width: 600, height: 440)
-        .navigationTitle("AirBattery Settings")
+        .navigationSplitViewStyle(.automatic)
+    }
+}
+
+struct SettingsView: View {
+    @State private var selection: SettingsPane = .general
+    @AppStorage("showDebug") var showDebug: Bool = false
+
+    var body: some View {
+        SettingsNavigationSplit(selection: $selection, showDebug: showDebug)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onChange(of: showDebug) { enabled in
+                if !enabled, selection == .debug {
+                    selection = .general
+                }
+            }
     }
 }
 
@@ -54,61 +147,58 @@ struct GeneralView: View {
     @AppStorage("showDebug") var showDebug: Bool = false
     @State private var debugCount: Int = 0
     @State private var cltInstalled: Bool = false
-    
+
     var body: some View {
-        SForm {
-            SGroupBox(label: "Startup") {
-                SToggle("Launch at Login", isOn: $launchAtLogin)
+        Form {
+            Section {
+                Toggle("Launch at Login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { newValue in
                         SMLoginItemSetEnabled("com.lihaoyun6.AirBatteryHelper" as CFString, newValue)
                     }
-                Divider().opacity(0.5)
-                SPicker("Show AirBattery", selection: $showOn) {
+                Picker("Show AirBattery", selection: $showOn) {
                     Text("Dock").tag("dock")
                     Text("Menu Bar").tag("sbar")
                     Text("Both").tag("both")
                     Text("None").tag("none")
-                }.onChange(of: showOn) { newValue in
-                    switch newValue {
-                    case "sbar":
-                        statusBarItem.isVisible = true
-                        for i in pinnedItems { i.isVisible = true }
-                        NSApp.setActivationPolicy(.accessory)
-                    case "both":
-                        statusBarItem.isVisible = true
-                        for i in pinnedItems { i.isVisible = true }
-                        NSApp.setActivationPolicy(.regular)
-                    case "dock":
-                        statusBarItem.isVisible = false
-                        for i in pinnedItems { i.isVisible = false }
-                        NSApp.setActivationPolicy(.regular)
-                    default:
-                        statusBarItem.isVisible = false
-                        for i in pinnedItems { i.isVisible = false }
-                        NSApp.setActivationPolicy(.accessory)
+                }
+                .onChange(of: showOn) { newValue in
+                    applyShowOnValue(newValue)
+                }
+            } header: {
+                Text("Startup")
+            }
+            Section {
+                LabeledContent {
+                    HStack(spacing: 8) {
+                        SInfoButton(tips: "After installation, you can run \"airbattery\" in yor terminal to list all devices.")
+                        Button(cltInstalled ? "Uninstall" : "Install") {
+                            if cltInstalled {
+                                CommandLineTool.uninstall { updateCTL() }
+                            } else {
+                                CommandLineTool.install { updateCTL() }
+                            }
+                        }
                     }
-                    if newValue == "dock" || newValue == "both" {
-                        _ = createAlert(title: "AirBattery Tips".local, message: "Displaying AirBattery on the Dock will consume more power, it is better to use Menu Bar mode or Widgets.".local, button1: "OK").runModal()
-                    }
+                } label: {
+                    Text("Command Line Tool")
                 }
             }
-            SGroupBox {
-                SButton("Command Line Tool", buttonTitle: cltInstalled ? "Uninstall" : "Install",
-                        tips: "After installation, you can run \"airbattery\" in yor terminal to list all devices.") {
-                    if cltInstalled {
-                        CommandLineTool.uninstall { updateCTL() }
-                    } else {
-                        CommandLineTool.install { updateCTL() }
-                    }
-                }.onAppear { cltInstalled = CommandLineTool.isInstalled() }
-            }.padding(.top, -20)
-            SGroupBox(label: "Update") { UpdaterSettingsView(updater: updaterController.updater) }
-            VStack(spacing: 8) {
+            .onAppear { cltInstalled = CommandLineTool.isInstalled() }
+            Section {
+                UpdaterSettingsView(updater: updaterController.updater)
+            } header: {
+                Text("Update")
+            }
+            Section {
                 CheckForUpdatesView(updater: updaterController.updater)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } footer: {
                 if let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
                     Text("AirBattery v\(appVersion)")
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .multilineTextAlignment(.center)
                         .onTapGesture {
                             debugCount += 1
                             if debugCount > 9 {
@@ -119,7 +209,9 @@ struct GeneralView: View {
                 }
             }
         }
+        .formStyle(.grouped)
     }
+
     func updateCTL() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             cltInstalled = CommandLineTool.isInstalled()
@@ -136,132 +228,141 @@ struct NearbilityView: View {
     @AppStorage("readBTHID") var readBTHID = true
     @AppStorage("updateInterval") var updateInterval = 1
     @AppStorage("twsMerge") var twsMerge = 5
-    
+
     var body: some View {
-        SForm {
-            SGroupBox(label: "Scanner") {
-                SToggle("Discover iOS devices via Network", isOn: $readIDevice, tips: "Scan your iPhone / iPad / Apple Watch / VisionPro and other iDevices in your local network.")
-                Divider().opacity(0.5)
-                SToggle("Discover iOS devices via Bluetooth", isOn: $ideviceOverBLE, tips: "Scan your iPhone and iPad (Cellular) via Bluetooth.")
-                Divider().opacity(0.5)
-                SToggle("Discover BT and BLE devices", isOn: $readBTDevice, tips: "Get the battery usage of some Bluetooth peripherals like mouse, keyboard, headphone or etc.\n\nIf some of your device is not shown, try enabling \"Discover more BT devices\" or \"Discover more BLE devices\"")
-                Divider().opacity(0.5)
-                SToggle("Discover more BT devices", isOn: $readBTHID, tips: "Get the battery usage of more third-party Bluetooth devices\n\nBattery data will be updated when devices are reconnected to the Mac or the Mac wakes up.")
-                Divider().opacity(0.5)
-                SToggle("Discover more BLE devices", isOn: $readBLEDevice, tips: "Try to get the battery usage of any Bluetooth device that AirBattery can find\n\nWARNING: This is a BETA feature and may cause unexpected errors!")
-                    .foregroundColor(.orange)
+        Form {
+            Section {
+                Toggle("Discover iOS devices via Network", isOn: $readIDevice)
+                    .help("Scan your iPhone / iPad / Apple Watch / VisionPro and other iDevices in your local network.")
+                Toggle("Discover iOS devices via Bluetooth", isOn: $ideviceOverBLE)
+                    .help("Scan your iPhone and iPad (Cellular) via Bluetooth.")
+                Toggle("Discover BT and BLE devices", isOn: $readBTDevice)
+                    .help("Get the battery usage of some Bluetooth peripherals like mouse, keyboard, headphone or etc.\n\nIf some of your device is not shown, try enabling \"Discover more BT devices\" or \"Discover more BLE devices\"")
+                Toggle("Discover more BT devices", isOn: $readBTHID)
+                    .help("Get the battery usage of more third-party Bluetooth devices\n\nBattery data will be updated when devices are reconnected to the Mac or the Mac wakes up.")
+                Toggle("Discover more BLE devices", isOn: $readBLEDevice)
+                    .tint(.orange)
+                    .help("Try to get the battery usage of any Bluetooth device that AirBattery can find\n\nWARNING: This is a BETA feature and may cause unexpected errors!")
                     .onChange(of: readBLEDevice) { newValue in
                         if newValue {
                             _ = createAlert(title: "AirBattery Tips".local, message: "If you see a bluetooth pairing request from any device that isn't yours, add it to your blocklist!".local, button1: "OK").runModal()
                         }
                     }
-                Divider().opacity(0.5)
-                SToggle("Apple Pencil from your iPad", isOn: $readPencil, tips: "Read the battery status of the connected Apple Pencil through your iPad\n(It may take 10 minutes or longer to discover the Pencil for the first time)\n\nWARNING: This is a BETA feature and may drain your iPad's battery faster!")
-                    .foregroundColor(.orange)
+                Toggle("Apple Pencil from your iPad", isOn: $readPencil)
+                    .tint(.orange)
+                    .help("Read the battery status of the connected Apple Pencil through your iPad\n(It may take 10 minutes or longer to discover the Pencil for the first time)\n\nWARNING: This is a BETA feature and may drain your iPad's battery faster!")
+            } header: {
+                Text("Scanner")
             }
-            SGroupBox(label: "Others") {
-                VStack(spacing: 2) {
-                    SSteper("Refresh Interval (min)", value: $updateInterval, min: 1, max: 99)
-                    if updateDelay != updateInterval {
-                        HStack {
-                            Text("Relaunch AirBattery to apply this change")
-                                .font(.footnote)
-                                .foregroundColor(.red)
-                            Spacer()
-                        }
-                    }
+            Section {
+                SSteper("Refresh Interval (min)", value: $updateInterval, min: 1, max: 99)
+                if updateDelay != updateInterval {
+                    Text("Relaunch AirBattery to apply this change")
+                        .font(.footnote)
+                        .foregroundStyle(.red)
                 }
-                Divider().opacity(0.5)
                 SSteper("Earbud Merging Threshold", value: $twsMerge, min: 1, max: 99, tips: "If the difference in battery usage between the left and right earbuds is less than this value, AirBattery will show them as one device.")
+            } header: {
+                Text("Others")
             }
         }
+        .formStyle(.grouped)
     }
 }
 
 struct NearcastView: View {
     @AppStorage("nearCast") var nearCast = false
     @AppStorage("ncGroupID") var ncGroupID = ""
-    @State var debug: Bool = false
-    
+
     var body: some View {
-        SForm {
-            SGroupBox(label: "Nearcast") {
-                SToggle("Enable Nearcast", isOn: $nearCast)
+        Form {
+            Section {
+                Toggle("Enable Nearcast", isOn: $nearCast)
                     .onChange(of: nearCast) { newValue in
-                        if newValue {
-                            if ncGroupID != "" && isGroudIDValid(id: ncGroupID) {
-                                netcastService.resume()
-                            } else {
-                                DispatchQueue.main.async { nearCast = false; ncGroupID = "" }
-                                _ = createAlert(
-                                    title: "Invalid group ID".local,
-                                    message: "Please create or enter a valid Group ID before use!",
-                                    button1: "OK".local
-                                ).runModal()
-                            }
-                        } else {
-                            netcastService.stop()
-                        }
+                        handleNearCastChange(newValue)
                     }
-                Divider().opacity(0.5)
-                HStack(spacing: 4) {
-                    SField("Group ID", text: $ncGroupID).disabled(nearCast)
-                    Button(action: {
-                        ncGroupID = "nc-" + randomString(length: 20)
-                    }, label: {
-                        if ncGroupID != "" {
-                            Image(systemName: "arrow.clockwise.circle")
-                                .font(.system(size: 15, weight: .light))
-                        } else {
-                            Image(systemName: "plus.circle")
+                LabeledContent {
+                    HStack(spacing: 6) {
+                        TextField("Group ID", text: $ncGroupID)
+                            .textFieldStyle(.roundedBorder)
+                            .disabled(nearCast)
+                        Button {
+                            ncGroupID = "nc-" + randomString(length: 20)
+                        } label: {
+                            Image(systemName: ncGroupID.isEmpty ? "plus.circle" : "arrow.clockwise.circle")
                                 .font(.system(size: 15, weight: .light))
                         }
-                    })
-                    .buttonStyle(.plain)
-                    .disabled(nearCast)
-                    Button(action: {
-                        if ncGroupID != "" && isGroudIDValid(id: ncGroupID) {
-                            copyToClipboard(ncGroupID)
-                            _ = createAlert(title: "Group ID Copied".local,
-                                            message: String(format: "Group ID has been copied to the clipboard.".local, ncGroupID),
-                                            button1: "OK".local).runModal()
-                        } else {
-                            DispatchQueue.main.async { ncGroupID = "" }
-                            _ = createAlert(
-                                title: "Invalid group ID".local,
-                                message: "Please create or enter a valid Group ID before use!",
-                                button1: "OK".local
-                            ).runModal()
+                        .buttonStyle(.borderless)
+                        .disabled(nearCast)
+                        Button(action: { copyOrWarnGroupID() }) {
+                            Image("list.clipboard.fill.circle")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 15, height: 15)
                         }
-                    }, label: {
-                        Image("list.clipboard.fill.circle")
-                            .resizable().scaledToFit()
-                            .frame(width: 15, height: 15)
-                    }).buttonStyle(.plain)
-                }.frame(height: 16)
-                Divider().opacity(0.5)
-                VStack(spacing: 2) {
-                    Text("Nearcast will broadcast your battery data within the local network.")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                    Text("Your data has been encrypted using the group id, don't share it with others.")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
+                        .buttonStyle(.borderless)
+                    }
+                } label: {
+                    Text("Group ID")
                 }
+            } header: {
+                Text("Nearcast")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Nearcast will broadcast your battery data within the local network.")
+                    Text("Your data has been encrypted using the group id, don't share it with others.")
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             }
-            SGroupBox(label: "Peer Info") {
-                HStack {
-                    Text("Local ID")
-                    Spacer()
+            Section {
+                LabeledContent {
                     Text(netcastService.transceiver.localPeerId ?? "")
                         .font(.callout)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                } label: {
+                    Text("Local ID")
                 }
+            } header: {
+                Text("Peer Info")
             }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func handleNearCastChange(_ newValue: Bool) {
+        if newValue {
+            if ncGroupID != "" && isGroudIDValid(id: ncGroupID) {
+                netcastService.resume()
+            } else {
+                DispatchQueue.main.async { nearCast = false; ncGroupID = "" }
+                _ = createAlert(
+                    title: "Invalid group ID".local,
+                    message: "Please create or enter a valid Group ID before use!",
+                    button1: "OK".local
+                ).runModal()
+            }
+        } else {
+            netcastService.stop()
+        }
+    }
+
+    private func copyOrWarnGroupID() {
+        if ncGroupID != "" && isGroudIDValid(id: ncGroupID) {
+            copyToClipboard(ncGroupID)
+            _ = createAlert(title: "Group ID Copied".local,
+                            message: String(format: "Group ID has been copied to the clipboard.".local, ncGroupID),
+                            button1: "OK".local).runModal()
+        } else {
+            DispatchQueue.main.async { ncGroupID = "" }
+            _ = createAlert(
+                title: "Invalid group ID".local,
+                message: "Please create or enter a valid Group ID before use!",
+                button1: "OK".local
+            ).runModal()
         }
     }
 }
@@ -277,34 +378,31 @@ struct DisplayView: View {
     @AppStorage("hideLevel") var hideLevel = 90
     @AppStorage("disappearTime") var disappearTime = 20
     @State private var levelList = [95, 90, 80, 70, 60, 50, 40, 30, 20, 10]
-    
+
     var body: some View {
-        SForm {
-            SGroupBox(label: "Menu Bar") {
-                SToggle("Dynamic Battery Icon", isOn: $intBattOnStatusBar)
-                Divider().opacity(0.5)
-                SToggle("Colorful Battery Icon", isOn: $colorfulBattery)
+        Form {
+            Section {
+                Toggle("Dynamic Battery Icon", isOn: $intBattOnStatusBar)
+                Toggle("Colorful Battery Icon", isOn: $colorfulBattery)
                     .disabled(!intBattOnStatusBar)
-                Divider().opacity(0.5)
-                SPicker("Battery Icon Style", selection: $iosBatteryStyle) {
+                Picker("Battery Icon Style", selection: $iosBatteryStyle) {
                     Text("macOS").tag(false)
                     Text("iOS").tag(true)
-                }.disabled(!intBattOnStatusBar)
-                Divider().opacity(0.5)
-                SPicker("Show Percentage", selection: $batteryPercent) {
+                }
+                .disabled(!intBattOnStatusBar)
+                Picker("Show Percentage", selection: $batteryPercent) {
                     Text("Hidden").tag("hide")
                     Text("Inside").tag("inside")
                     Text("Outside").tag("outside")
-                }.disabled(!intBattOnStatusBar)
-                Divider().opacity(0.5)
-                SPicker("Remove Offline Device", selection: $disappearTime) {
+                }
+                .disabled(!intBattOnStatusBar)
+                Picker("Remove Offline Device", selection: $disappearTime) {
                     Text("Never").tag(UInt32.max)
                     Text("after 20min").tag(20)
                     Text("after 40min").tag(40)
                     Text("after 60min").tag(60)
                 }
-                Divider().opacity(0.5)
-                SPicker("Hide percentage when above", selection: $hideLevel) {
+                Picker("Hide percentage when above", selection: $hideLevel) {
                     Text("Never").tag(100)
                     ForEach(levelList, id: \.self) { number in
                         Text("\(number)%").tag(number)
@@ -312,49 +410,53 @@ struct DisplayView: View {
                     if !levelList.contains(hideLevel) && hideLevel != 100 {
                         Text("\(hideLevel)%").tag(hideLevel)
                     }
-                }.disabled(!intBattOnStatusBar || (batteryPercent == "hide"))
+                }
+                .disabled(!intBattOnStatusBar || (batteryPercent == "hide"))
+            } header: {
+                Text("Menu Bar")
             }
-            SGroupBox(label: "Dock") {
-                    SPicker("Appearance", selection: $appearance) {
-                        Text("Automatic").tag("auto")
-                        Text("Light").tag("false")
-                        Text("Dark").tag("true")
-                    }.pickerStyle(.segmented)
-                    Divider().opacity(0.5)
-                    SPicker("Built-in Battery Style", selection: $showThisMac, tips: "Show or hide this Mac's built-in battery in the Dock icon") {
-                        Text("Hidden").tag("hidden")
-                        Text("Device Icon").tag("icon")
-                        Text("Percent").tag("percent")
-                    }
-                    Divider().opacity(0.5)
-                    SToggle("Carousel Mode", isOn: $carouselMode, tips: "Cycle through all found devices in the Dock icon")
+            Section {
+                Picker("Appearance", selection: $appearance) {
+                    Text("Automatic").tag("auto")
+                    Text("Light").tag("false")
+                    Text("Dark").tag("true")
+                }
+                .pickerStyle(.segmented)
+                Picker("Built-in Battery Style", selection: $showThisMac) {
+                    Text("Hidden").tag("hidden")
+                    Text("Device Icon").tag("icon")
+                    Text("Percent").tag("percent")
+                }
+                .help("Show or hide this Mac's built-in battery in the Dock icon")
+                Toggle("Carousel Mode", isOn: $carouselMode)
+                    .help("Cycle through all found devices in the Dock icon")
+            } header: {
+                Text("Dock")
             }
         }
+        .formStyle(.grouped)
     }
 }
 
 struct WidgetView: View {
-    //@AppStorage("showMacOnWidget") var showMacOnWidget = true
     @AppStorage("revListOnWidget") var revListOnWidget = false
     @AppStorage("deviceOnWidget") var deviceOnWidget = ""
     @AppStorage("widgetInterval") var widgetInterval = 0
     @AppStorage("deviceName") var deviceName = "Mac"
-    
+
     @State var ib = getMacDeviceType().lowercased().contains("book")
     @State var devices = [String]()
 
     var body: some View {
-        SForm {
-            SGroupBox(label: "Widget") {
-                SToggle("Reverse Device List", isOn: $revListOnWidget)
-                Divider().opacity(0.5)
-                SPicker("Refresh Interval", selection: $widgetInterval) {
+        Form {
+            Section {
+                Toggle("Reverse Device List", isOn: $revListOnWidget)
+                Picker("Refresh Interval", selection: $widgetInterval) {
                     Text("System Default").tag(-1)
                     Text("Same as Nearbility").tag(0)
                 }
                 if #unavailable(macOS 14) {
-                    Divider().opacity(0.5)
-                    SPicker("Single Device Widget", selection: $deviceOnWidget) {
+                    Picker("Single Device Widget", selection: $deviceOnWidget) {
                         Text("Not Set").tag("")
                         if ib { Text(deviceName).tag(deviceName) }
                         ForEach(devices, id: \.self) { device in
@@ -363,15 +465,22 @@ struct WidgetView: View {
                         if !devices.contains(deviceOnWidget) && deviceOnWidget != deviceName && deviceOnWidget != "" {
                             Text(deviceOnWidget).tag(deviceOnWidget)
                         }
-                    }.onChange(of: deviceOnWidget) { _ in _ = AirBatteryModel.singleDeviceName() }
+                    }
+                    .onChange(of: deviceOnWidget) { _ in _ = AirBatteryModel.singleDeviceName() }
                 }
-                Divider().opacity(0.5)
-                SButton("Reload All Widgets", buttonTitle: "Reload") {
-                    AirBatteryModel.writeData()
-                    WidgetCenter.shared.reloadAllTimelines()
+                LabeledContent {
+                    Button("Reload") {
+                        AirBatteryModel.writeData()
+                        WidgetCenter.shared.reloadAllTimelines()
+                    }
+                } label: {
+                    Text("Reload All Widgets")
                 }
+            } header: {
+                Text("Widget")
             }
         }
+        .formStyle(.grouped)
         .onAppear { devices = AirBatteryModel.getAll(noFilter: true).filter({ $0.hasBattery }).map({ $0.deviceName }) }
         .onReceive(dockTimer) { _ in
             if #unavailable(macOS 14) {
@@ -387,63 +496,77 @@ struct BlacklistView: View {
     @State private var temp = ""
     @State private var showSheet = false
     @State private var editingIndex: Int?
-    
+
     var body: some View {
-        SForm(noSpacer: true) {
-            SGroupBox(label: "Blocklist") {
-                    SToggle("Allowlist Mode", isOn: $whitelistMode)
-                    Divider().opacity(0.5)
-                    HStack {
-                        Spacer()
-                        Text(whitelistMode ? "Only the following devices will be showed" : "The following devices will be ignored")
-                            .foregroundColor(.secondary)
-                        Spacer()
-                    }
-                    ZStack(alignment: Alignment(horizontal: .trailing, vertical: .bottom)) {
-                        List {
-                            ForEach(0..<blockedItems.count, id: \.self) { index in
-                                HStack {
-                                    Image(systemName: "minus.circle.fill")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.red)
-                                        .onTapGesture { if editingIndex == nil { blockedItems.remove(at: index) } }
-                                    Text(blockedItems[index])
-                                }
-                            }
-                        }
-                        Button(action: {
-                            showSheet = true
-                        }) {
-                            Image(systemName: "plus.square.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .sheet(isPresented: $showSheet){
-                            VStack {
-                                TextField("Enter Device Name".local, text: $temp).frame(width: 300)
-                                HStack(spacing: 20) {
-                                    Button {
-                                        if temp == "" { return }
-                                        if !blockedItems.contains(temp) { blockedItems.append(temp) }
-                                        temp = ""
-                                        showSheet = false
-                                    } label: {
-                                        Text("Add to List").frame(width: 80)
-                                    }.keyboardShortcut(.defaultAction)
-                                    Button {
-                                        showSheet = false
-                                    } label: {
-                                        Text("Cancel").frame(width: 80)
-                                    }
-                                }.padding(.top, 10)
-                            }.padding()
-                        }
-                    }
+        Form {
+            Section {
+                Toggle("Allowlist Mode", isOn: $whitelistMode)
+            } footer: {
+                Text(whitelistMode ? "Only the following devices will be showed" : "The following devices will be ignored")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
-            .onAppear { blockedItems = (ud.object(forKey: "blockedDevices") as? [String]) ?? [String]() }
-            .onChange(of: blockedItems) { b in ud.setValue(b, forKey: "blockedDevices") }
+            Section {
+                List {
+                    ForEach(Array(blockedItems.enumerated()), id: \.offset) { index, name in
+                        HStack {
+                            Button {
+                                if editingIndex == nil { blockedItems.remove(at: index) }
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.borderless)
+                            Text(name)
+                        }
+                    }
+                }
+                .listStyle(.inset)
+                .frame(minHeight: 180)
+                .environment(\.defaultMinListRowHeight, 28)
+            } header: {
+                HStack {
+                    Text("Devices")
+                    Spacer()
+                    Button {
+                        showSheet = true
+                    } label: {
+                        Image(systemName: "plus.square.fill")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
         }
+        .formStyle(.grouped)
+        .sheet(isPresented: $showSheet) {
+            addDeviceSheet
+        }
+        .onAppear { blockedItems = (ud.object(forKey: "blockedDevices") as? [String]) ?? [String]() }
+        .onChange(of: blockedItems) { b in ud.setValue(b, forKey: "blockedDevices") }
+    }
+
+    @ViewBuilder private var addDeviceSheet: some View {
+        VStack {
+            TextField("Enter Device Name".local, text: $temp).frame(width: 300)
+            HStack(spacing: 20) {
+                Button {
+                    if temp == "" { return }
+                    if !blockedItems.contains(temp) { blockedItems.append(temp) }
+                    temp = ""
+                    showSheet = false
+                } label: {
+                    Text("Add to List").frame(width: 80)
+                }.keyboardShortcut(.defaultAction)
+                Button {
+                    showSheet = false
+                } label: {
+                    Text("Cancel").frame(width: 80)
+                }
+            }.padding(.top, 10)
+        }.padding()
     }
 }
 
@@ -454,7 +577,7 @@ struct DebugView: View {
     @AppStorage("test_full") var test_full = false
     @AppStorage("test_iblevel") var test_iblevel = 100
     @AppStorage("showDebug") var showDebug: Bool = false
-    
+
     @State private var deviceID: String = ""
     @State private var deviceType: String = ""
     @State private var deviceName: String = ""
@@ -465,105 +588,117 @@ struct DebugView: View {
     @State private var isCharging: Bool = false
     @State private var fullCharged: Bool = false
     @State private var isPresented: Bool = false
-    
-    @Binding var selectedItem: String?
-    
+
+    @Binding var selectedPane: SettingsPane
+
     var body: some View {
-        SForm(noSpacer: true) {
-            SGroupBox {
-                SToggle("Debug Mode", isOn: $test_debug)
-                Divider().opacity(0.5)
-                SButton("Data Folder", buttonTitle: "Open") {
-                    NSWorkspace.shared.open(ncFolder.deletingLastPathComponent())
-                }
-            }
-            SGroupBox(label: "Built-in Battery") {
-                SToggle("Built-in Battery", isOn: $test_hasib)
-                Divider().opacity(0.5)
-                SToggle("AC Powered", isOn: $test_ac)
-                Divider().opacity(0.5)
-                SToggle("Paused", isOn: $test_full)
-                Divider().opacity(0.5)
-                SSteper("Level", value: $test_iblevel, min: 1)
-            }
-            SGroupBox(label: "Remote Battery") {
-                HStack {
-                    Text("Create Item")
-                    Spacer()
-                    Button(action: {
-                        isPresented = true
-                    }, label: {
-                        Image(systemName: "plus.circle.fill")
-                    })
-                    .buttonStyle(.plain)
-                    .sheet(isPresented: $isPresented) {
-                        VStack {
-                            SGroupBox(label: "Remote Battery") {
-                                SField("Device ID", text: $deviceID)
-                                Divider().opacity(0.5)
-                                SField("Device Name", text: $deviceName)
-                                Divider().opacity(0.5)
-                                SField("Device Type", text: $deviceType)
-                                Divider().opacity(0.5)
-                                SField("Device Model", text: $deviceModel)
-                                Divider().opacity(0.5)
-                                HStack {
-                                    SField("Parent Name", text: $parentName)
-                                    Button(action: {
-                                        parentName = getMacDeviceName()
-                                    }, label: {
-                                        let ib = ib2ab(InternalBattery.status)
-                                        Image(getDeviceIcon(ib))
-                                            .resizable().scaledToFit()
-                                            .frame(width: 16, height: 16)
-                                    }).buttonStyle(.plain)
-                                }
-                                Divider().opacity(0.5)
-                                SSteper("Level", value: $batteryLevel)
-                                Divider().opacity(0.5)
-                                SToggle("Charging", isOn: $isCharging)
-                                Divider().opacity(0.5)
-                                SToggle("Paused", isOn: $fullCharged)
-                                Divider().opacity(0.5)
-                                SToggle("Low Power", isOn: $lowPower)
-                            }
-                            HStack {
-                                Spacer()
-                                Button(action: {
-                                    isPresented = false
-                                }, label: {
-                                    Text("Cancle").frame(width: 50)
-                                })
-                                Button(action: {
-                                    let device = Device(deviceID: deviceID, deviceType: deviceType, deviceName: deviceName, batteryLevel: batteryLevel, isCharging: isCharging ? 1 : (fullCharged ? 5 : 0), lowPower: lowPower, parentName: parentName,lastUpdate: Date().timeIntervalSince1970)
-                                    AirBatteryModel.updateDevice(device)
-                                    isPresented = false
-                                }, label: {
-                                    Text("Add").frame(width: 50)
-                                }).keyboardShortcut(.defaultAction)
-                            }
-                        }
-                        .padding()
-                        .onAppear {
-                            deviceID = randomString(length: 10)
-                            deviceType = "virtual"
-                            deviceName = "Virtual Device"
-                            deviceModel = ""
-                            parentName = ""
-                            batteryLevel = 100
-                            lowPower = false
-                            isCharging = false
-                            fullCharged = false
-                        }
+        Form {
+            Section {
+                Toggle("Debug Mode", isOn: $test_debug)
+                LabeledContent {
+                    Button("Open") {
+                        NSWorkspace.shared.open(ncFolder.deletingLastPathComponent())
                     }
+                } label: {
+                    Text("Data Folder")
                 }
             }
-            Button("Hide Debug Menu", action: {
-                test_debug = false
-                showDebug = false
-                selectedItem = "General"
-            })
-            .padding(.top, -6)
+            Section {
+                Toggle("Built-in Battery", isOn: $test_hasib)
+                Toggle("AC Powered", isOn: $test_ac)
+                Toggle("Paused", isOn: $test_full)
+                SSteper("Level", value: $test_iblevel, min: 1)
+            } header: {
+                Text("Built-in Battery")
+            }
+            Section {
+                LabeledContent {
+                    Button {
+                        isPresented = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                } label: {
+                    Text("Create Item")
+                }
+            } header: {
+                Text("Remote Battery")
+            }
+            Section {
+                Button("Hide Debug Menu") {
+                    test_debug = false
+                    showDebug = false
+                    selectedPane = .general
+                }
+            }
         }
+        .formStyle(.grouped)
+        .sheet(isPresented: $isPresented) {
+            remoteBatterySheet
+        }
+    }
+
+    private var remoteBatterySheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Device ID", text: $deviceID)
+                    TextField("Device Name", text: $deviceName)
+                    TextField("Device Type", text: $deviceType)
+                    TextField("Device Model", text: $deviceModel)
+                    HStack {
+                        TextField("Parent Name", text: $parentName)
+                        Button {
+                            parentName = getMacDeviceName()
+                        } label: {
+                            let ib = ib2ab(InternalBattery.status)
+                            Image(getDeviceIcon(ib))
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 16, height: 16)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    SSteper("Level", value: $batteryLevel)
+                    Toggle("Charging", isOn: $isCharging)
+                    Toggle("Paused", isOn: $fullCharged)
+                    Toggle("Low Power", isOn: $lowPower)
+                } header: {
+                    Text("Remote Battery")
+                }
+            }
+            .formStyle(.grouped)
+            .padding()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancle") { isPresented = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") { addVirtualDevice() }
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .frame(minWidth: 400)
+        .onAppear(perform: resetRemoteBatteryFields)
+    }
+
+    private func resetRemoteBatteryFields() {
+        deviceID = randomString(length: 10)
+        deviceType = "virtual"
+        deviceName = "Virtual Device"
+        deviceModel = ""
+        parentName = ""
+        batteryLevel = 100
+        lowPower = false
+        isCharging = false
+        fullCharged = false
+    }
+
+    private func addVirtualDevice() {
+        let device = Device(deviceID: deviceID, deviceType: deviceType, deviceName: deviceName, batteryLevel: batteryLevel, isCharging: isCharging ? 1 : (fullCharged ? 5 : 0), lowPower: lowPower, parentName: parentName, lastUpdate: Date().timeIntervalSince1970)
+        AirBatteryModel.updateDevice(device)
+        isPresented = false
     }
 }

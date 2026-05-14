@@ -67,7 +67,9 @@ struct mainBatteryView: View {
         HStack(alignment: .center, spacing:4){
             if item.hasBattery && intBattOnStatusBar {
                 if batteryPercent == "outside" && !(item.batteryLevel > hideLevel) {
-                    Text("\(item.batteryLevel)%").font(.system(size: 11))
+                    Text("\(item.batteryLevel)%")
+                        .font(.caption2)
+                        .monospacedDigitIfAvailable()
                 }
                 if !iosBatteryStyle {
                     let width = round(max(2, min(19, Double(item.batteryLevel)/100*19)))
@@ -143,9 +145,9 @@ struct mainBatteryView: View {
                     }.compositingGroup()
                 }
             } else {
-                Image("bolt.square.fill")
-                    .resizable()
-                    .scaledToFit()
+                Image(systemName: "bolt.square.fill")
+                    .hierarchicalSymbolRendering()
+                    .font(.system(size: 15, weight: .medium))
                     .frame(width: 16, height: 16)
             }
         }
@@ -193,11 +195,13 @@ struct BatteryLevelView: View {
             if item.acPowered {
                 HStack(spacing: -1) {
                     Text("\(item.batteryLevel)")
-                        .font(.system(size: item.batteryLevel > 99 ? 10 : 11, weight: .medium))
-                        .tracking(item.batteryLevel > 99 ? -0.3 : 0)
+                        .font(item.batteryLevel > 99 ? .system(size: 10, weight: .medium) : .caption2.weight(.medium))
+                        .monospacedDigitIfAvailable()
+                        .modifier(DigitTightening(amount: item.batteryLevel > 99 ? -0.3 : 0))
                         .offset(y: item.batteryLevel > 99 ? 0.4 : 0.5)
-                    Image((item.isCharging || item.isCharged) ? "bolt.fill" : "powerplug.portrait.fill")
-                        .resizable().scaledToFit()
+                    Image(systemName: (item.isCharging || item.isCharged) ? "bolt.fill" : "powerplug.portrait.fill")
+                        .hierarchicalSymbolRendering()
+                        .font(.system(size: 9, weight: .semibold))
                         .frame(width: 5)
                         .padding(.leading, 1)
                         .offset(y:item.batteryLevel < 100 ? 0.5 : 0)
@@ -206,7 +210,8 @@ struct BatteryLevelView: View {
                 .offset(y: (item.acPowered && item.batteryLevel < 100) ? -0.5 : 0)
             } else {
                 Text("\(item.batteryLevel)")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.caption2.weight(.medium))
+                    .monospacedDigitIfAvailable()
             }
         }
         .frame(maxHeight: 12, alignment: .center)

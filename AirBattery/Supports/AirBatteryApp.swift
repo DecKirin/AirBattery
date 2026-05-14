@@ -5,6 +5,7 @@
 //  Created by apple on 2023/9/4.
 //
 import AppKit
+import ServiceManagement
 import SwiftUI
 import WidgetKit
 import UserNotifications
@@ -37,25 +38,12 @@ struct AirBatteryApp: App {
         registerNotificationCategory()
     }
     
+    /// Standard `Window` scene (System Settings–style chrome). The old `Settings { }` scene is deprecated for this app — it drew an extra title bar / inset frame and misaligned the traffic lights.
     var body: some Scene {
-        Settings {
-            SettingsView()
-                .background(
-                    WindowAccessor(
-                        onWindowOpen: { w in
-                            if let w = w {
-                                //w.level = .floating
-                                w.titlebarSeparatorStyle = .none
-                                guard let nsSplitView = findNSSplitVIew(view: w.contentView),
-                                      let controller = nsSplitView.delegate as? NSSplitViewController else { return }
-                                controller.splitViewItems.first?.canCollapse = false
-                                controller.splitViewItems.first?.minimumThickness = 175
-                                controller.splitViewItems.first?.maximumThickness = 175
-                                w.orderFront(nil)
-                            }
-                        })
-                )
+        Window("AirBattery Settings", id: airBatterySettingsWindowId) {
+            AirBatterySettingsWindowRoot()
         }
+        .defaultSize(width: 780, height: 560)
     }
 }
 
@@ -121,7 +109,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
                     ncDeviceCount += count
                 }
             }
-            let menuHeight = CGFloat((max(max(allDevices.count,1)+ncDeviceCount,1)+hiddenRow)*37+30+ncCount)
+            let nearCastOn = ud.bool(forKey: "nearCast")
+            let actionColumnHeight = nearCastOn ? 200 : 150
+            let menuHeight = CGFloat((max(max(allDevices.count,1)+ncDeviceCount,1)+hiddenRow)*37+actionColumnHeight+ncCount)
             let mouse = NSEvent.mouseLocation
             var menuX = mouse.x
             var menuY = mouse.y
@@ -288,6 +278,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
             }
         }
         
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            for w in NSApp.windows where w.title.contains("AirBattery") && w.title.contains("Settings") {
+                w.orderOut(nil)
+                break
+            }
+        }
+
         if readBTHID {
             let tipID = "ab.third-party-device.note"
             let never = ud.object(forKey: "neverRemindMe") as! [String]
@@ -386,6 +383,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
             let ibStatus = InternalBattery.status
             if ibStatus.hasBattery { allDevices.insert(ib2ab(ibStatus), at: 0) }
             let contentView = NSHostingController(rootView: popover(fromDock: false, allDevice: allDevices))
+            contentView.view.wantsLayer = true
+            contentView.view.layer?.backgroundColor = NSColor.clear.cgColor
             menuPopover.setValue(true, forKeyPath: "shouldHideAnchor")
             menuPopover.contentViewController = contentView
             menuPopover.behavior = .transient
@@ -515,23 +514,16 @@ func refeshPinnedBar(unpin: String? = nil) {
 
 @discardableResult
 func ensureLoginItem(enabled: Bool) -> Bool {
-    let helperBundleIdentifier = "com.lihaoyun6.AirBatteryHelper"
-    if #available(macOS 13.0, *) {
-        do {
-            if enabled {
-                try SMAppService.mainApp.register()
-            } else {
-                try SMAppService.mainApp.unregister()
-            }
-            return true
-        } catch {
-            NSLog("[AirBattery] SMAppService register/unregister failed: \(error.localizedDescription)")
-            return false
+    do {
+        if enabled {
+            try SMAppService.mainApp.register()
+        } else {
+            try SMAppService.mainApp.unregister()
         }
-    } else {
-        let ok = SMLoginItemSetEnabled(helperBundleIdentifier as CFString, enabled)
-        if !ok { NSLog("[AirBattery] SMLoginItemSetEnabled failed for \(helperBundleIdentifier)") }
-        return ok
+        return true
+    } catch {
+        NSLog("[AirBattery] SMAppService register/unregister failed: \(error.localizedDescription)")
+        return false
     }
 }
 

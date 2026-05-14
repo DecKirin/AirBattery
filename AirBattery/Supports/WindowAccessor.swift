@@ -17,13 +17,15 @@ struct WindowAccessor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async {
-            if let window = view.window {
-                window.delegate = context.coordinator
-                context.coordinator.window = window
-                self.onWindowOpen?(window)
-            } else {
+            guard let window = view.window else {
                 self.onWindowOpen?(nil)
+                return
             }
+            // Do not assign `window.delegate` here. Replacing SwiftUI's delegate (e.g. on the
+            // Settings window) breaks frame persistence and move handling so the window can snap
+            // back to its previous origin after each drag.
+            context.coordinator.window = window
+            self.onWindowOpen?(window)
         }
         return view
     }
@@ -39,8 +41,8 @@ struct WindowAccessor: NSViewRepresentable {
         )
     }
 
-    class Coordinator: NSObject, NSWindowDelegate {
-        weak var window: NSWindow? // 使用 weak 避免循环引用
+    final class Coordinator: NSObject {
+        weak var window: NSWindow?
         var onWindowOpen: ((NSWindow?) -> Void)?
         var onWindowActive: ((NSWindow?) -> Void)?
         var onWindowDeactivate: ((NSWindow?) -> Void)?
@@ -55,17 +57,7 @@ struct WindowAccessor: NSViewRepresentable {
             self.onWindowActive = onWindowActive
             self.onWindowDeactivate = onWindowDeactivate
         }
-
-        func windowWillClose(_ notification: Notification) {
-            onWindowClose?()
-        }
-        
-        func windowDidBecomeKey(_ notification: Notification) {
-            onWindowActive?(window)
-        }
-
-        func windowDidResignKey(_ notification: Notification) {
-            onWindowDeactivate?(window)
-        }
+        // If you need window lifecycle callbacks without replacing `NSWindow.delegate`, use
+        // `NotificationCenter` (e.g. `NSWindow.didBecomeKeyNotification`) from `onWindowOpen`.
     }
 }
