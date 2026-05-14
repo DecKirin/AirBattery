@@ -314,8 +314,7 @@ struct popover: View {
     }
     
     var body: some View {
-        ZStack{
-            if fromDock { Color.clear.background(BlurView(material: .menu)) }
+        ZStack {
             VStack(spacing: 0) {
 //                HStack {
 //                    Text("AirBattery")
@@ -797,10 +796,21 @@ struct popover: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: 352)
+        .background {
+            if fromDock {
+                if #available(macOS 26, *) {
+                    RoundedRectangle(cornerRadius: dockFloatingPanelCornerRadius, style: .continuous)
+                        .fill(Color.clear)
+                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: dockFloatingPanelCornerRadius, style: .continuous))
+                } else {
+                    Color.clear.background(BlurView(material: .menu))
+                }
+            }
+        }
         .background(Color.clear)
         .onAppear { allDevices = allDevice }
         .onReceive(mainTimer) { t in
-            if !fromDock && menuPopover.isShown {
+            if fromDock || menuPopover.isShown {
                 allDevices = AirBatteryModel.getAll()
                 hiddenDevices = AirBatteryModel.getBlackList()
                 hidden = [Int]()

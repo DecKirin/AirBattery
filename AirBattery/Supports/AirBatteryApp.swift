@@ -158,7 +158,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
             dockWindow.isOpaque = false
             dockWindow.backgroundColor = NSColor.clear
             dockWindow.contentView?.wantsLayer = true
-            dockWindow.contentView?.layer?.cornerRadius = 7
+            if #available(macOS 26, *) {
+                dockWindow.contentView?.layer?.cornerRadius = dockFloatingPanelCornerRadius
+            } else {
+                dockWindow.contentView?.layer?.cornerRadius = 7
+            }
             dockWindow.contentView?.layer?.masksToBounds = true
             dockWindow.makeKeyAndOrderFront(nil)
         }

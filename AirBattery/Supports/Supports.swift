@@ -14,6 +14,9 @@ let updateInterval = ud.integer(forKey: "updateInterval")
 
 let mainTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 let dockTimer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
+
+/// Dock floating panel corner radius (SwiftUI Liquid Glass + hosting view layer on macOS 26+).
+let dockFloatingPanelCornerRadius: CGFloat = 14
 let alertTimer = Timer.publish(every: 300, on: .main, in: .common).autoconnect()
 let widgetDataTimer = Timer.publish(every: TimeInterval(24 * updateInterval), on: .main, in: .common).autoconnect()
 let nearCastTimer = Timer.publish(every: TimeInterval(60 * updateInterval + Int(arc4random_uniform(10)) - Int(arc4random_uniform(10))), on: .main, in: .common).autoconnect()
