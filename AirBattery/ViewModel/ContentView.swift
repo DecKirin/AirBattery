@@ -195,17 +195,19 @@ struct MultiBatteryView: View {
         .frame(width: 128, height: 128, alignment: .center)
         .onChange(of: appearanceMonitor.isDarkMode) { newValue in
             darkMode = newValue
-            NSApp.dockTile.display()
+            scheduleDockTileDisplay()
         }
         .onChange(of: appearance) { _ in
             darkMode = getDarkMode()
-            NSApp.dockTile.display()
+            scheduleDockTileDisplay()
         }
         .onReceive(alertTimer) {_ in batteryAlert() }
         .onReceive(widgetViewTimer) {_ in
             if widgetInterval != -1 { WidgetCenter.shared.reloadAllTimelines() }
         }
-        .onReceive(dockTimer) {_ in IDeviceBattery.shared.scanDevices() }
+        .onReceive(ideviceScanTimer) { _ in
+            IDeviceBattery.shared.scanDevices()
+        }
         .onReceive(widgetDataTimer) {_ in
             SPBluetoothDataModel.shared.refeshData (completion: { result in
                 DispatchQueue.global(qos: .background).async {
@@ -232,28 +234,27 @@ struct MultiBatteryView: View {
             }
         }
         .onReceive(dockTimer) { t in
-            if showOn == "both" || showOn == "dock" {
-                var list = AirBatteryModel.getAll()
-                let ncFiles = getFiles(withExtension: "json", in: ncFolder)
-                for ncFile in ncFiles { list += AirBatteryModel.ncGetAll(url: ncFile) }
-                let ibStatus = InternalBattery.status
-                let now = Double(t.timeIntervalSince1970)
-                
-                if !carouselMode { rollCount = 1 }
-                if ibStatus.hasBattery && showThisMac != "hidden" { list.insert(ib2ab(ibStatus), at: 0) }
-                
+            guard showOn == "both" || showOn == "dock" else { return }
+            var list = AirBatteryModel.getAll()
+            let ncFiles = getFiles(withExtension: "json", in: ncFolder)
+            for ncFile in ncFiles { list += AirBatteryModel.ncGetAll(url: ncFile) }
+            let ibStatus = InternalBattery.status
+            let now = Double(t.timeIntervalSince1970)
+
+            if !carouselMode { rollCount = 1 }
+            if ibStatus.hasBattery && showThisMac != "hidden" { list.insert(ib2ab(ibStatus), at: 0) }
+
+            batteryList = sliceList(data: list, length: 4, count: rollCount)
+            if batteryList.isEmpty {
+                rollCount = 1
                 batteryList = sliceList(data: list, length: 4, count: rollCount)
-                if batteryList == []{
-                    rollCount = 1
-                    batteryList = sliceList(data: list, length: 4, count: rollCount)
-                }
-                
-                if now - lastTime >= 20 && list.count > 4 && carouselMode {
-                    lastTime = now
-                    rollCount = rollCount + 1
-                }
-                NSApp.dockTile.display()
             }
+
+            if now - lastTime >= 20 && list.count > 4 && carouselMode {
+                lastTime = now
+                rollCount = rollCount + 1
+            }
+            scheduleDockTileDisplay()
         }
     }
 }
@@ -703,6 +704,25 @@ struct popover: View {
                     .opacity(0.35)
                     .padding(.horizontal, 12)
                 Spacer().frame(height: 10)
+                if let health = InternalBattery.status.health {
+                    HStack(spacing: 0) {
+                        Image(getDeviceIcon(ib2ab(InternalBattery.status)))
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .foregroundColor(.blackWhite)
+                            .frame(width: 22, height: 22, alignment: .center)
+                        Text("Battery Health".local)
+                            .font(.system(size: 12))
+                            .foregroundColor(.blackWhite)
+                            .padding(.horizontal, 7)
+                        Spacer()
+                        Text("\(health)%")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(health < 80 ? Color(getHealthColor(health)) : .secondary)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
+                }
                 VStack(spacing: 0) {
                     Button(action: {
                         dockWindow.orderOut(nil)

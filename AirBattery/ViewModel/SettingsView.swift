@@ -375,7 +375,7 @@ struct DisplayView: View {
     @AppStorage("iosBatteryStyle") var iosBatteryStyle = false
     @AppStorage("intBattOnStatusBar") var intBattOnStatusBar = true
     @AppStorage("batteryPercent") var batteryPercent = "outside"
-    @AppStorage("hideLevel") var hideLevel = 90
+    @AppStorage("hideLevel") var hideLevel = 100
     @AppStorage("disappearTime") var disappearTime = 20
     @State private var levelList = [95, 90, 80, 70, 60, 50, 40, 30, 20, 10]
 

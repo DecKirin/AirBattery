@@ -10,14 +10,60 @@ import IOBluetooth
 
 class SPBluetoothDataModel {
     static var shared: SPBluetoothDataModel = SPBluetoothDataModel()
-    var data: String = "{}"
-    
-    func refeshData(completion: (String) -> Void, error: (() -> Void)? = nil) {
-        if let result = process(path: "/usr/sbin/system_profiler", arguments: ["SPBluetoothDataType", "-json"]) {
-            data = result
-            completion(result)
-        } else {
-            error?()
+
+    private let scanQueue = DispatchQueue(label: "com.lihaoyun6.AirBattery.spbluetooth-scan")
+    private let lock = NSLock()
+    private var _data: String = "{}"
+    private var isRunning = false
+    private var pendingCallbacks: [(completion: (String) -> Void, error: (() -> Void)?)] = []
+
+    var data: String {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _data
+        }
+        set {
+            lock.lock()
+            _data = newValue
+            lock.unlock()
+        }
+    }
+
+    func refeshData(completion: @escaping (String) -> Void, error: (() -> Void)? = nil) {
+        lock.lock()
+        pendingCallbacks.append((completion, error))
+        if isRunning {
+            lock.unlock()
+            return
+        }
+        isRunning = true
+        lock.unlock()
+
+        runScan()
+    }
+
+    private func runScan() {
+        scanQueue.async { [weak self] in
+            guard let self else { return }
+            let result = process(path: "/usr/sbin/system_profiler", arguments: ["SPBluetoothDataType", "-json"])
+
+            self.lock.lock()
+            let callbacks = self.pendingCallbacks
+            self.pendingCallbacks = []
+            if let result { self._data = result }
+            self.lock.unlock()
+
+            for callback in callbacks {
+                if let result { callback.completion(result) } else { callback.error?() }
+            }
+
+            self.lock.lock()
+            let runAgain = !self.pendingCallbacks.isEmpty
+            if !runAgain { self.isRunning = false }
+            self.lock.unlock()
+
+            if runAgain { self.runScan() }
         }
     }
 }

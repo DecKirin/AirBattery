@@ -34,7 +34,6 @@ struct AirBatterySettingsWindowRoot: View {
         w.titlebarSeparatorStyle = .none
         w.titleVisibility = .hidden
         w.isMovableByWindowBackground = true
-        w.orderFront(nil)
     }
 }
 

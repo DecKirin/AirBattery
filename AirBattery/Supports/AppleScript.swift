@@ -21,11 +21,12 @@ class listAll: NSScriptCommand {
 
 class reloadAll: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
-        Thread.detachNewThread {
+        DispatchQueue.main.async {
             print("Reloading all widgets...")
             AirBatteryModel.writeData()
             WidgetCenter.shared.reloadAllTimelines()
         }
+        return nil
     }
 }
 

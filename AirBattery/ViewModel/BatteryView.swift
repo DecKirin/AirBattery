@@ -53,7 +53,7 @@ struct mainBatteryView: View {
     @AppStorage("iosBatteryStyle") var iosBatteryStyle = false
     @AppStorage("batteryPercent") var batteryPercent = "outside"
     @AppStorage("internalLevel") var internalLevel = false
-    @AppStorage("hideLevel") var hideLevel = 90
+    @AppStorage("hideLevel") var hideLevel = 100
     
     @AppStorage("test_debug") var test_debug = false
     @AppStorage("test_hasib") var test_hasib = false

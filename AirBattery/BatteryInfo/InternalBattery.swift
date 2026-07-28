@@ -16,6 +16,7 @@ struct iBattery {
     var timeLeft: String
     var batteryLevel: Int
     var lowPower: Bool = false
+    var health: Int? = nil
 }
 
 class InternalBattery {
@@ -28,6 +29,7 @@ class InternalBattery {
     var manufactureDate: Date?
     var currentCapacity: Int?
     var maxCapacity: Int?
+    var rawMaxCapacity: Int?
     var designCapacity: Int?
     var cycleCount: Int?
     var designCycleCount: Int?
@@ -51,9 +53,13 @@ class InternalBattery {
 
     var health: Double? {
         get {
-            if let design = self.designCapacity,
-               let current = self.maxCapacity {
-                return (Double(current) / Double(design)) * 100.0
+            // On Apple Silicon, "MaxCapacity" is a percentage (0-100), not the same
+            // mAh unit as "DesignCapacity" — "AppleRawMaxCapacity" is the mAh value
+            // that actually compares against design capacity. Fall back to
+            // "MaxCapacity" on older Macs where it's already reported in mAh.
+            if let design = self.designCapacity, design > 0,
+               let current = self.rawMaxCapacity ?? self.maxCapacity {
+                return min(100.0, (Double(current) / Double(design)) * 100.0)
             }
             return nil
         }
@@ -152,6 +158,7 @@ class InternalFinder {
         // Capacities
         battery.currentCapacity = self.getIntValue("CurrentCapacity" as CFString)
         battery.maxCapacity = self.getIntValue("MaxCapacity" as CFString)
+        battery.rawMaxCapacity = self.getIntValue("AppleRawMaxCapacity" as CFString)
         battery.designCapacity = self.getIntValue("DesignCapacity" as CFString)
 
         // Battery Cycles

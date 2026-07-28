@@ -54,26 +54,24 @@ struct Device: Hashable, Codable {
 }
 
 class AirBatteryModel {
-    static var lock = false
+    private static let lock = NSLock()
     static var Devices: [Device] = []
     static let machineType = ud.string(forKey: "machineType") ?? "Mac"
     static let key = "com.lihaoyun6.AirBattery.widget"
     
     static func updateDevice(_ device: Device) {
-        //let blockedItems = (ud.object(forKey: "blockedDevices") as? [String]) ?? [String]()
-        //if blockedItems.contains(device.deviceName) { return }
-        if lock { return }
-        lock = true
-        //self.Devices.removeAll(where: {blockedItems.contains($0.deviceName)})
-        if let index = self.Devices.firstIndex(where: { $0.deviceName == device.deviceName }) {
-            self.Devices[index] = device
+        lock.lock()
+        defer { lock.unlock() }
+        if let index = Devices.firstIndex(where: { $0.deviceName == device.deviceName }) {
+            Devices[index] = device
         } else {
-            self.Devices.append(device)
+            Devices.append(device)
         }
-        lock = false
     }
     
     static func hideDevice(_ name: String) {
+        lock.lock()
+        defer { lock.unlock() }
         for index in Devices.indices {
             if Devices[index].deviceName == name {
                 Devices[index].isHidden = true
@@ -82,6 +80,8 @@ class AirBatteryModel {
     }
     
     static func unhideDevice(_ name: String) {
+        lock.lock()
+        defer { lock.unlock() }
         for index in Devices.indices {
             if Devices[index].deviceName == name {
                 Devices[index].isHidden = false
@@ -96,11 +96,15 @@ class AirBatteryModel {
     }
     
     static func getAll(reverse: Bool = false, noFilter: Bool = false) -> [Device] {
+        lock.lock()
+        let devicesSnapshot = Devices
+        lock.unlock()
+
         let thisMac = ud.string(forKey: "deviceName")
         let disappearTime = (ud.object(forKey: "disappearTime") ?? 20) as! Int
         let blackList = (ud.object(forKey: "blackList") ?? []) as! [String]
         let now = Double(Date().timeIntervalSince1970)
-        var list = (reverse ? Array(Devices.reversed()) : Devices).filter { (now - $0.lastUpdate < Double(disappearTime * 60)) }
+        var list = (reverse ? Array(devicesSnapshot.reversed()) : devicesSnapshot).filter { (now - $0.lastUpdate < Double(disappearTime * 60)) }
         if !noFilter { list = list.filter { !blackList.contains($0.deviceName) && !$0.isHidden } }
         var newList: [Device] = list.filter({ $0.parentName == thisMac })
         for d in list {

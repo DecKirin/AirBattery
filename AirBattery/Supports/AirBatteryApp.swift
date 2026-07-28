@@ -59,7 +59,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     @AppStorage("batteryPercent") var batteryPercent = "outside"
     @AppStorage("alertSound") var alertSound = true
     @AppStorage("readBTHID") var readBTHID = true
-    @AppStorage("hideLevel") var hideLevel = 90
+    @AppStorage("hideLevel") var hideLevel = 100
     @AppStorage("disappearTime") var disappearTime = 20
     @AppStorage("whitelistMode") var whitelistMode = false
     @AppStorage("iosBatteryStyle") var iosBatteryStyle = false
@@ -289,11 +289,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
             }
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            for w in NSApp.windows where w.title.contains("AirBattery") && w.title.contains("Settings") {
-                w.orderOut(nil)
-                break
-            }
+        // Keep the settings `Window` scene off-screen at launch (SwiftUI materializes it; `WindowAccessor` used to `orderFront` it).
+        DispatchQueue.main.async {
+            orderOutAirBatterySettingsWindow()
         }
 
         if readBTHID {

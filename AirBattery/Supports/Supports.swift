@@ -14,6 +14,7 @@ let updateInterval = ud.integer(forKey: "updateInterval")
 
 let mainTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 let dockTimer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
+let ideviceScanTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
 /// Dock floating panel corner radius (SwiftUI Liquid Glass + hosting view layer on macOS 26+).
 let dockFloatingPanelCornerRadius: CGFloat = 14
@@ -24,6 +25,26 @@ let widgetViewTimer = Timer.publish(every: TimeInterval(60 * updateInterval), on
 let macID = getMacModelIdentifier()
 let isoFormatter = ISO8601DateFormatter()
 var lowPowerNoteDelay = [String: Double]()
+
+private var dockTileDisplayScheduled = false
+private let dockTileDisplayLock = NSLock()
+
+/// Coalesce dock tile redraws so multiple timer/appearance events schedule at most one display() per run-loop turn.
+func scheduleDockTileDisplay() {
+    dockTileDisplayLock.lock()
+    if dockTileDisplayScheduled {
+        dockTileDisplayLock.unlock()
+        return
+    }
+    dockTileDisplayScheduled = true
+    dockTileDisplayLock.unlock()
+    DispatchQueue.main.async {
+        dockTileDisplayLock.lock()
+        dockTileDisplayScheduled = false
+        dockTileDisplayLock.unlock()
+        NSApp.dockTile.display()
+    }
+}
 
 // Serialized incremental log reader for Enhanced HID scans
 class LogReader {
@@ -213,43 +234,44 @@ struct RoundedCornersShape: Shape {
 }
 
 public func process(path: String, arguments: [String], timeout: Int = 0) -> String? {
-    let task = Process()
-    task.launchPath = path
-    task.arguments = arguments
-    task.standardError = Pipe()
+    return autoreleasepool {
+        let task = Process()
+        task.launchPath = path
+        task.arguments = arguments
+        task.standardError = Pipe()
 
-    let outputPipe = Pipe()
-    defer { outputPipe.fileHandleForReading.closeFile() }
-    task.standardOutput = outputPipe
+        let outputPipe = Pipe()
+        defer { outputPipe.fileHandleForReading.closeFile() }
+        task.standardOutput = outputPipe
 
-    if timeout != 0 {
-        DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(timeout)) {
-            if task.isRunning {
-                task.terminate()
-                // Escalate if still running shortly after terminate
-                DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(400)) {
-                    if task.isRunning {
-                        let pid = task.processIdentifier
-                        _ = process(path: "/bin/kill", arguments: ["-9", String(pid)], timeout: 1)
+        if timeout != 0 {
+            DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(timeout)) {
+                if task.isRunning {
+                    task.terminate()
+                    DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(400)) {
+                        if task.isRunning {
+                            let pid = task.processIdentifier
+                            _ = process(path: "/bin/kill", arguments: ["-9", String(pid)], timeout: 1)
+                        }
                     }
                 }
             }
         }
+
+        do {
+            try task.run()
+        } catch let error {
+            print("\(error.localizedDescription)")
+            return nil
+        }
+
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(decoding: outputData, as: UTF8.self)
+
+        if output.isEmpty { return nil }
+
+        return output.trimmingCharacters(in: .newlines)
     }
-
-    do {
-        try task.run()
-    } catch let error {
-        print("\(error.localizedDescription)")
-        return nil
-    }
-
-    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-    let output = String(decoding: outputData, as: UTF8.self)
-
-    if output.isEmpty { return nil }
-
-    return output.trimmingCharacters(in: .newlines)
 }
 
 func getMenuBarHeight() -> CGFloat {
@@ -347,6 +369,7 @@ func getPowerState() -> iBattery {
         if let level = internalBattery.charge {
             var ib = iBattery(hasBattery: true, isCharging: internalBattery.isCharging ?? false, isCharged :internalBattery.isCharged ?? false, acPowered: internalBattery.acPowered ?? false, timeLeft: internalBattery.timeLeft, batteryLevel: Int(level))
             if #available(macOS 12.0, *) { ib.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled }
+            if let health = internalBattery.health { ib.health = Int(health.rounded()) }
             return ib
         }
     }
@@ -363,6 +386,12 @@ func getPowerColor(_ device: Device) -> String {
         colorName = "my_yellow"
     }
     return colorName
+}
+
+func getHealthColor(_ health: Int) -> String {
+    if health <= 60 { return "my_red" }
+    if health <= 80 { return "my_yellow" }
+    return "my_green"
 }
 
 func getDarkMode() -> Bool {

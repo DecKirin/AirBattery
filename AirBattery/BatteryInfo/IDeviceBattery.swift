@@ -9,42 +9,63 @@ import Foundation
 
 class IDeviceBattery {
     static var shared: IDeviceBattery = IDeviceBattery()
-    
-    //var scanTimer: Timer?
+
+    private let scanQueue = DispatchQueue(label: "com.lihaoyun6.AirBattery.idevice-scan")
+    private var isRunning = false
+    private var queued = false
+    private let lock = NSLock()
+
     @AppStorage("readPencil") var readPencil = false
     @AppStorage("readIDevice") var readIDevice = true
     @AppStorage("updateInterval") var updateInterval = 1
-    
+
     func startScan() {
-        //let interval = TimeInterval(5.0)
-        //scanTimer = Timer.scheduledTimer(timeInterval: interval, target: self, selector: #selector(scanDevices), userInfo: nil, repeats: true)
         print("ℹ️ Start scanning iDevice devices...")
         scanDevices()
     }
-    
+
     @objc func scanDevices() {
-        Thread.detachNewThread {
-            if !self.readIDevice { return }
-            self.getIDeviceBattery()
+        guard readIDevice else { return }
+        lock.lock()
+        if isRunning {
+            queued = true
+            lock.unlock()
+            return
+        }
+        isRunning = true
+        lock.unlock()
+
+        scanQueue.async { [weak self] in
+            guard let self else { return }
+            autoreleasepool {
+                self.getIDeviceBattery()
+            }
+            self.finishScan()
         }
     }
-    
+
+    private func finishScan() {
+        lock.lock()
+        isRunning = false
+        let again = queued
+        queued = false
+        lock.unlock()
+        if again { scanDevices() }
+    }
+
     func getPencil(d: Device, type: String = "") {
-        if d.deviceType == "iPad" && readPencil {
-            Thread.detachNewThread {
-                if let result = process(path: "/bin/bash", arguments: ["\(Bundle.main.resourcePath!)/logReader.sh", "\(Bundle.main.resourcePath!)/libimobiledevice/bin/idevicesyslog", type, d.deviceID], timeout: 11 * self.updateInterval) {
-                    if let json = try? JSONSerialization.jsonObject(with: Data(result.utf8), options: []) as? [String: Any] {
-                        if let level = json["level"] as? Int, let model = json["model"] as? String, let vendor = json["vendor"] as? String {
-                            let status = (json["status"] as? Int) ?? 0
-                            print("ℹ️ Pencil of \(d.deviceName): \(result)")
-                            AirBatteryModel.updateDevice(Device(deviceID: "Pencil_"+d.deviceID, deviceType: vendor == "Apple" ? "ApplePencil" : "Pencil", deviceName: vendor == "Apple" ? "Apple Pencil".local : "Pencil".local, deviceModel: model, batteryLevel: level, isCharging: status, parentName: d.deviceName, lastUpdate: Date().timeIntervalSince1970))
-                        }
-                    }
+        guard d.deviceType == "iPad", readPencil else { return }
+        if let result = process(path: "/bin/bash", arguments: ["\(Bundle.main.resourcePath!)/logReader.sh", "\(Bundle.main.resourcePath!)/libimobiledevice/bin/idevicesyslog", type, d.deviceID], timeout: 11 * updateInterval) {
+            if let json = try? JSONSerialization.jsonObject(with: Data(result.utf8), options: []) as? [String: Any] {
+                if let level = json["level"] as? Int, let model = json["model"] as? String, let vendor = json["vendor"] as? String {
+                    let status = (json["status"] as? Int) ?? 0
+                    print("ℹ️ Pencil of \(d.deviceName): \(result)")
+                    AirBatteryModel.updateDevice(Device(deviceID: "Pencil_"+d.deviceID, deviceType: vendor == "Apple" ? "ApplePencil" : "Pencil", deviceName: vendor == "Apple" ? "Apple Pencil".local : "Pencil".local, deviceModel: model, batteryLevel: level, isCharging: status, parentName: d.deviceName, lastUpdate: Date().timeIntervalSince1970))
                 }
             }
         }
     }
-    
+
     func getIDeviceBattery() {
         if let result = process(path: "\(Bundle.main.resourcePath!)/libimobiledevice/bin/idevice_id", arguments: ["-n"]) {
             for id in result.components(separatedBy: .newlines) {
@@ -67,9 +88,8 @@ class IDeviceBattery {
             }
         }
     }
-    
+
     func writeBatteryInfo(_ id: String, _ connectType: String) {
-        //print("ℹ️ Getting Battery Info for \(id)")
         let lastUpdate = Date().timeIntervalSince1970
         if connectType == "" { _ = process(path: "\(Bundle.main.resourcePath!)/libimobiledevice/bin/wificonnection", arguments: ["-u", id, "true"]) }
         if let deviceInfo = process(path: "\(Bundle.main.resourcePath!)/libimobiledevice/bin/ideviceinfo", arguments: [connectType, "-u", id]){
