@@ -215,7 +215,14 @@ struct MultiBatteryView: View {
                     AirBatteryModel.writeData()
                 }
             }, error: {
-                AirBatteryModel.writeData()
+                // system_profiler failed or timed out. The IOKit-backed Magic scans don't depend
+                // on it (they only consult the cached JSON for friendly names/types, and fall back
+                // cleanly), so still rescan — otherwise one flaky system_profiler run starves
+                // Magic Mouse/Keyboard/Trackpad until they age out via `disappearTime`.
+                DispatchQueue.global(qos: .background).async {
+                    MagicBattery.shared.scanDevices()
+                    AirBatteryModel.writeData()
+                }
             })
         }
         .onReceive(nearCastTimer) {_ in
