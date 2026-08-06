@@ -11,6 +11,7 @@
 		180B1C0E2C1204E400DDB570 /* AppIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180B1C0D2C12017400DDB570 /* AppIntent.swift */; };
 		1819E94C2CC2A8C2007B95E9 /* BatteryAlertView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1819E94B2CC2A8C2007B95E9 /* BatteryAlertView.swift */; };
 		293F0D7CF48CABB3F23C5559 /* DeviceCapsuleGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CA7F2C2F7B3EF685D855D53 /* DeviceCapsuleGrid.swift */; };
+		C1A7E30D5B94F1268A3D0011 /* AppleDeviceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A7E30D5B94F1268A3D0022 /* AppleDeviceModels.swift */; };
 		18283DA42B854776009B1B13 /* AirBatteryHelperApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18283DA32B854776009B1B13 /* AirBatteryHelperApp.swift */; };
 		18283DA82B854779009B1B13 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 18283DA72B854779009B1B13 /* Assets.xcassets */; };
 		18283DAB2B854779009B1B13 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 18283DAA2B854779009B1B13 /* Preview Assets.xcassets */; };
@@ -123,6 +124,7 @@
 		180B1C0D2C12017400DDB570 /* AppIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntent.swift; sourceTree = "<group>"; };
 		1819E94B2CC2A8C2007B95E9 /* BatteryAlertView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryAlertView.swift; sourceTree = "<group>"; };
 		6CA7F2C2F7B3EF685D855D53 /* DeviceCapsuleGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceCapsuleGrid.swift; sourceTree = "<group>"; };
+		C1A7E30D5B94F1268A3D0022 /* AppleDeviceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleDeviceModels.swift; sourceTree = "<group>"; };
 		18283DA12B854776009B1B13 /* AirBatteryHelper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AirBatteryHelper.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		18283DA32B854776009B1B13 /* AirBatteryHelperApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirBatteryHelperApp.swift; sourceTree = "<group>"; };
 		18283DA72B854779009B1B13 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -292,6 +294,7 @@
 				184ADEF32DDB6C9F004791F0 /* AirBatteryApp.swift */,
 				A1B200012E5F60020001A00 /* AirBatterySettingsWindow.swift */,
 				B514C7C2F2534FEB982D4A0E /* ModernPopoverChrome.swift */,
+				C1A7E30D5B94F1268A3D0022 /* AppleDeviceModels.swift */,
 				184ADEF42DDB6C9F004791F0 /* AppleScript.swift */,
 				184ADEF52DDB6C9F004791F0 /* BTTool.swift */,
 				184ADEF62DDB6C9F004791F0 /* CommandLineTool.swift */,
@@ -551,6 +554,7 @@
 				184ADF002DDB6C9F004791F0 /* AirBatteryApp.swift in Sources */,
 				A1B200012E5F60020001B01 /* AirBatterySettingsWindow.swift in Sources */,
 				9DB72698222544F1BA76FCA9 /* ModernPopoverChrome.swift in Sources */,
+				C1A7E30D5B94F1268A3D0011 /* AppleDeviceModels.swift in Sources */,
 				184ADF012DDB6C9F004791F0 /* AppleScript.swift in Sources */,
 				184ADF022DDB6C9F004791F0 /* BTTool.swift in Sources */,
 				184ADF032DDB6C9F004791F0 /* CommandLineTool.swift in Sources */,

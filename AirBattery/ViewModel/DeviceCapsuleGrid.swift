@@ -153,7 +153,11 @@ struct DeviceCapsuleView: View {
             let label = device.isCharging != 0 ? "Until Full:" : "Until Empty:"
             return "\(label.local) \(InternalBattery.status.timeLeft)"
         }
-        return device.deviceModel ?? device.deviceType
+        // `deviceModel` is a raw model identifier for Apple mobile devices ("iPhone17,1"); show the
+        // marketing name where we know it. Other producers put a friendly string in there already
+        // (AirPods), and those pass through untouched.
+        guard let model = device.deviceModel else { return device.deviceType }
+        return displayModelName(model)
     }
 
     var body: some View {
