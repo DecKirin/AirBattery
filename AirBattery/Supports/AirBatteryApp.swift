@@ -123,6 +123,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
                 "nearCast": false,
                 "readBTHID": true,
                 "whitelistMode": false,
+                "dropdownTheme": DropdownTheme.adaptive.rawValue,
                 "neverRemindMe": [String]()
             ]
         )
@@ -420,6 +421,9 @@ func presentDeviceDropdown(fromDock: Bool) {
     // window each time forced the glass to re-establish and re-sample its backdrop from scratch,
     // which is what made the panel take a beat to settle to the right colour every time it opened.
     let contentView = configuredDropdownHostingView()
+    // Re-applied on every presentation so a change in Settings takes effect the next time the panel
+    // opens. `nil` (adaptive) restores inheritance, so switching back off light/dark is not sticky.
+    deviceDropdownWindow.appearance = DropdownTheme.current().nsAppearance
     contentView.rootView = popover(fromDock: fromDock, allDevice: allDevices)
     deviceDropdownWindow.title = fromDock ? "AirBattery Dock Window" : "AirBattery Menu Bar Window"
     deviceDropdownWindow.setFrame(frame, display: false)

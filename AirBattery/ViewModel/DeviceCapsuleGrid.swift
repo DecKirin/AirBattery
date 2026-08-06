@@ -9,6 +9,52 @@
 
 import SwiftUI
 
+// MARK: - Theme
+
+/// User-selectable theme for the dropdown panel.
+///
+/// `adaptive` is the original behaviour and stays the default: the panel window carries no explicit
+/// appearance, so the Liquid Glass samples whatever is behind it and the `.primary`/`.secondary`
+/// content tracks that backdrop — which is why the capsules stay legible over both a dark and a
+/// light wallpaper regardless of the macOS appearance setting. The other three pin an appearance on
+/// the window, so the glass resolves light or dark no matter what it is floating over.
+enum DropdownTheme: String, CaseIterable, Identifiable {
+    case adaptive
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    /// Falls back to `.adaptive` for an unset or unrecognised stored value.
+    static func current() -> DropdownTheme {
+        DropdownTheme(rawValue: ud.string(forKey: "dropdownTheme") ?? "") ?? .adaptive
+    }
+
+    var helpText: String {
+        switch self {
+        case .adaptive: "Follows the desktop behind the panel, so it stays readable on any wallpaper"
+        case .system: "Follows the macOS appearance setting"
+        case .light: "Always light"
+        case .dark: "Always dark"
+        }
+    }
+
+    /// `nil` means "inherit", which is exactly what lets the glass sample its backdrop.
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .adaptive: nil
+        case .system: NSAppearance(named: systemPrefersDark ? .darkAqua : .aqua)
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
+
+    private var systemPrefersDark: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+}
+
 // MARK: - Layout constants (shared with AirBatteryApp.swift's window sizing)
 
 let dropdownPanelWidth: CGFloat = 380

@@ -382,8 +382,107 @@ struct NearcastView: View {
     }
 }
 
+/// Applies an `NSAppearance` to hosted SwiftUI content the same way `presentDeviceDropdown` applies
+/// it to the panel window, so the Liquid Glass in the preview resolves exactly as it will in the
+/// real dropdown. A SwiftUI `.preferredColorScheme` is not equivalent — it sets the colour-scheme
+/// environment, but the glass materials follow `NSAppearance`, so the preview would disagree with
+/// the panel it is previewing.
+private struct ThemedGlassPreview<Content: View>: NSViewRepresentable {
+    var appearance: NSAppearance?
+    var content: Content
+
+    init(appearance: NSAppearance?, @ViewBuilder content: () -> Content) {
+        self.appearance = appearance
+        self.content = content()
+    }
+
+    func makeNSView(context: Context) -> NSHostingView<Content> {
+        let view = NSHostingView(rootView: content)
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.clear.cgColor
+        return view
+    }
+
+    func updateNSView(_ nsView: NSHostingView<Content>, context: Context) {
+        nsView.appearance = appearance
+        nsView.rootView = content
+    }
+}
+
+/// Loaded once — the wallpaper is only a backdrop for the preview and re-reading a 5K image on
+/// every body evaluation would be wasteful.
+private enum DesktopPicture {
+    static let image: NSImage? = {
+        guard let screen = NSScreen.main,
+              let url = NSWorkspace.shared.desktopImageURL(for: screen) else { return nil }
+        return NSImage(contentsOf: url)
+    }()
+}
+
+/// Two representative capsules rendered by the real `DeviceCapsuleView`, over the current desktop
+/// picture. The wallpaper matters: adaptive mode is *defined* by what sits behind the panel, so
+/// against a flat swatch it would look identical to the system mode and the preview would not
+/// actually show you the difference you are choosing between.
+private struct DropdownThemePreview: View {
+    var theme: DropdownTheme
+
+    private var sampleDevices: [Device] {
+        let now = Date().timeIntervalSince1970
+        return [
+            // Real `deviceType`/`deviceModel` values, not invented ones, so `getDeviceIcon` and the
+            // capsule subtitle resolve exactly as they do in the live panel. An unrecognised type
+            // renders a "?" badge, and a missing model makes the subtitle fall back to the raw
+            // type token ("ap_case").
+            // The Mac icon comes from the real `macID`, so `deviceModel` here only feeds the
+            // subtitle — a readable string rather than a raw "Mac15,3" identifier.
+            Device(deviceID: "preview-mac", deviceType: "macbookpro", deviceName: "MacBook Pro", deviceModel: "MacBook Pro", batteryLevel: 76, isCharging: 0, lastUpdate: now),
+            Device(deviceID: "preview-pods", deviceType: "ap_case", deviceName: "AirPods Pro", deviceModel: "Airpods Pro", batteryLevel: 28, isCharging: 0, lastUpdate: now)
+        ]
+    }
+
+    var body: some View {
+        ZStack {
+            if let wallpaper = DesktopPicture.image {
+                Image(nsImage: wallpaper).resizable().scaledToFill()
+            } else {
+                LinearGradient(colors: [Color(red: 0.16, green: 0.20, blue: 0.34),
+                                        Color(red: 0.42, green: 0.34, blue: 0.52)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
+            ThemedGlassPreview(appearance: theme.nsAppearance) {
+                HStack(spacing: dropdownGridSpacing) {
+                    ForEach(sampleDevices, id: \.deviceName) { device in
+                        DeviceCapsuleView(
+                            device: device,
+                            isHovered: false,
+                            isAlerting: false,
+                            isPinned: false,
+                            onHoverChanged: { _ in },
+                            onToggleAlert: {},
+                            onTogglePin: {},
+                            onCopyName: {},
+                            onHide: {}
+                        )
+                    }
+                }
+                .padding(.horizontal, dropdownOuterPadding)
+                .padding(.vertical, dropdownOuterPadding - dropdownBadgeOverlap / 2)
+            }
+        }
+        .frame(height: dropdownCapsuleCellHeight + dropdownOuterPadding * 2 - dropdownBadgeOverlap)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(.separator, lineWidth: 1)
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Preview of the device dropdown")
+    }
+}
+
 struct DisplayView: View {
     @AppStorage("appearance") var appearance = "auto"
+    @AppStorage("dropdownTheme") var dropdownTheme = DropdownTheme.adaptive.rawValue
     @AppStorage("showThisMac") var showThisMac = "icon"
     @AppStorage("carouselMode") var carouselMode = true
     @AppStorage("colorfulBattery") var colorfulBattery = false
@@ -393,6 +492,10 @@ struct DisplayView: View {
     @AppStorage("hideLevel") var hideLevel = 100
     @AppStorage("disappearTime") var disappearTime = 20
     @State private var levelList = [95, 90, 80, 70, 60, 50, 40, 30, 20, 10]
+
+    private var selectedDropdownTheme: DropdownTheme {
+        DropdownTheme(rawValue: dropdownTheme) ?? .adaptive
+    }
 
     var body: some View {
         Form {
@@ -447,6 +550,26 @@ struct DisplayView: View {
                     .help("Cycle through all found devices in the Dock icon")
             } header: {
                 Text("Dock")
+            }
+            Section {
+                Picker("Theme", selection: $dropdownTheme) {
+                    Text("Adaptive").tag(DropdownTheme.adaptive.rawValue)
+                    Text("System").tag(DropdownTheme.system.rawValue)
+                    Text("Light").tag(DropdownTheme.light.rawValue)
+                    Text("Dark").tag(DropdownTheme.dark.rawValue)
+                }
+                .pickerStyle(.segmented)
+                Text(LocalizedStringKey(selectedDropdownTheme.helpText))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                DropdownThemePreview(theme: selectedDropdownTheme)
+                    .padding(.vertical, 4)
+            } header: {
+                Text("Device Dropdown")
+            } footer: {
+                Text("Takes effect the next time the dropdown is opened.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
