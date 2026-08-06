@@ -46,7 +46,11 @@ class SPBluetoothDataModel {
     private func runScan() {
         scanQueue.async { [weak self] in
             guard let self else { return }
-            let result = process(path: "/usr/sbin/system_profiler", arguments: ["SPBluetoothDataType", "-json"])
+            // Must have a timeout: `system_profiler SPBluetoothDataType` can hang indefinitely.
+            // Without one, `readDataToEndOfFile()` blocks forever, `isRunning` never clears, and
+            // every later `refeshData` call parks its callback in `pendingCallbacks` and is never
+            // invoked — permanently killing the Magic device rescan until the app is relaunched.
+            let result = process(path: "/usr/sbin/system_profiler", arguments: ["SPBluetoothDataType", "-json"], timeout: 20)
 
             self.lock.lock()
             let callbacks = self.pendingCallbacks
@@ -203,78 +207,45 @@ class MagicBattery {
         }
     }
 
-    func getMagicBattery() {
+    /// Walk every IOService matching `serviceName` and hand each entry to `readMagicBattery`.
+    ///
+    /// Every `io_object_t` returned by `IOIteratorNext` carries a +1 retain that the caller owns.
+    /// The old per-function loops only released the trailing 0 sentinel, so each scan leaked one
+    /// Mach port per matched device. Since these scans re-run on `widgetDataTimer`, the leak
+    /// accumulated until the process hit its Mach port limit and `IOServiceGetMatchingServices`
+    /// started failing outright — at which point Magic Mouse/Keyboard/Trackpad silently stopped
+    /// being refreshed and aged out of the list via the `disappearTime` filter.
+    private func scanIOService(_ serviceName: String) {
         var serialPortIterator = io_iterator_t()
-        var object : io_object_t
         let masterPort: mach_port_t
         if #available(macOS 12.0, *) {
             masterPort = kIOMainPortDefault // New name in macOS 12 and higher
         } else {
             masterPort = kIOMasterPortDefault // Old name in macOS 11 and lower
         }
-        let matchingDict : CFDictionary = IOServiceMatching("AppleDeviceManagementHIDEventService")
+        let matchingDict: CFDictionary = IOServiceMatching(serviceName)
         let kernResult = IOServiceGetMatchingServices(masterPort, matchingDict, &serialPortIterator)
-        
-        if KERN_SUCCESS == kernResult {
-            repeat {
-                object = IOIteratorNext(serialPortIterator)
-                if object != 0 { readMagicBattery(object: object) }
-            } while object != 0
-            IOObjectRelease(object)
+        guard kernResult == KERN_SUCCESS else {
+            print("⚠️ IOServiceGetMatchingServices(\(serviceName)) failed: \(kernResult)")
+            return
         }
-        IOObjectRelease(serialPortIterator)
-    }
-    
-    func getOldMagicKeyboard() {
-        var serialPortIterator = io_iterator_t()
-        var object : io_object_t
-        let masterPort: mach_port_t
-        if #available(macOS 12.0, *) { masterPort = kIOMainPortDefault } else { masterPort = kIOMasterPortDefault }
-        let matchingDict : CFDictionary = IOServiceMatching("AppleBluetoothHIDKeyboard")
-        let kernResult = IOServiceGetMatchingServices(masterPort, matchingDict, &serialPortIterator)
-        if KERN_SUCCESS == kernResult {
-            repeat {
-                object = IOIteratorNext(serialPortIterator)
-                if object != 0 { readMagicBattery(object: object) }
-            } while object != 0
+        defer { IOObjectRelease(serialPortIterator) }
+
+        var object = IOIteratorNext(serialPortIterator)
+        while object != 0 {
+            readMagicBattery(object: object)
             IOObjectRelease(object)
+            object = IOIteratorNext(serialPortIterator)
         }
-        IOObjectRelease(serialPortIterator)
     }
-    
-    func getOldMagicTrackpad() {
-        var serialPortIterator = io_iterator_t()
-        var object : io_object_t
-        let masterPort: mach_port_t
-        if #available(macOS 12.0, *) { masterPort = kIOMainPortDefault } else { masterPort = kIOMasterPortDefault }
-        let matchingDict : CFDictionary = IOServiceMatching("BNBTrackpadDevice")
-        let kernResult = IOServiceGetMatchingServices(masterPort, matchingDict, &serialPortIterator)
-        if KERN_SUCCESS == kernResult {
-            repeat {
-                object = IOIteratorNext(serialPortIterator)
-                if object != 0 { readMagicBattery(object: object) }
-            } while object != 0
-            IOObjectRelease(object)
-        }
-        IOObjectRelease(serialPortIterator)
-    }
-    
-    func getOldMagicMouse() {
-        var serialPortIterator = io_iterator_t()
-        var object : io_object_t
-        let masterPort: mach_port_t
-        if #available(macOS 12.0, *) { masterPort = kIOMainPortDefault } else { masterPort = kIOMasterPortDefault }
-        let matchingDict : CFDictionary = IOServiceMatching("BNBMouseDevice")
-        let kernResult = IOServiceGetMatchingServices(masterPort, matchingDict, &serialPortIterator)
-        if KERN_SUCCESS == kernResult {
-            repeat {
-                object = IOIteratorNext(serialPortIterator)
-                if object != 0 { readMagicBattery(object: object) }
-            } while object != 0
-            IOObjectRelease(object)
-        }
-        IOObjectRelease(serialPortIterator)
-    }
+
+    func getMagicBattery() { scanIOService("AppleDeviceManagementHIDEventService") }
+
+    func getOldMagicKeyboard() { scanIOService("AppleBluetoothHIDKeyboard") }
+
+    func getOldMagicTrackpad() { scanIOService("BNBTrackpadDevice") }
+
+    func getOldMagicMouse() { scanIOService("BNBMouseDevice") }
     
     func getAirpods() {
         let now = Date().timeIntervalSince1970
@@ -365,7 +336,9 @@ class MagicBattery {
                            let id = info["device_address"] as? String,
                            let type = info["device_minorType"] as? String,
                            (info["device_vendorID"] as? String) != "0x004C" {
-                            guard let batLevel = Int(level.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "%", with: "")) else { return }
+                            // `continue`, not `return`: one device with an unparseable battery string
+                            // must not abort the walk and starve every device after it in the list.
+                            guard let batLevel = Int(level.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "%", with: "")) else { continue }
                             AirBatteryModel.updateDevice(Device(deviceID: id, deviceType: type, deviceName: n, batteryLevel: batLevel, isCharging: 0, lastUpdate: Date().timeIntervalSince1970))
                         }
                     }

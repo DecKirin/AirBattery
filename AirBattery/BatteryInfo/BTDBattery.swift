@@ -42,7 +42,11 @@ class BTDBattery {
             guard let self else { return }
             autoreleasepool {
                 if self.readBTHID {
-                    if longScan { BTDBattery.getOtherDevice(last: "2h", timeout: 25) }
+                    // A 2h `log show` window measures ~29s on a quiet system, so the old 25s budget
+                    // killed the startup scan every time and no third-party HID device was ever
+                    // discovered. Give it room rather than shrinking the window, which is what
+                    // catches devices that last reported battery a while ago.
+                    if longScan { BTDBattery.getOtherDevice(last: "2h", timeout: 90) }
                     let connects = BTDBattery.getConnected()
                     let names = BTDBattery.allDevices.filter({ connects.contains($0) })
                     for name in names {

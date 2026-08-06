@@ -80,9 +80,15 @@ class LogReader {
             args = ["\(Bundle.main.resourcePath!)/logReader.sh", "mac", win]
         }
 
-        let out = process(path: "/bin/bash", arguments: args, timeout: 5)
+        // `log show` needs ~4s even for a 10m window on a quiet system; the old 5s budget meant a
+        // slightly busier log silently returned nothing and the device never updated.
+        let out = process(path: "/bin/bash", arguments: args, timeout: 20)
         parseAndUpdate(output: out)
-        advanceLastTS()
+        // Only move the watermark when the scan actually returned something. Advancing it after a
+        // failed or timed-out run marched the window past battery events that were never read, and
+        // since those are only logged on connect/state change, the device stayed missing until it
+        // was physically reconnected.
+        if out != nil { advanceLastTS() }
 
         lock.lock()
         isRunning = false
@@ -101,7 +107,11 @@ class LogReader {
             return fmt.string(from: t)
         }
         if let prev = fmt.date(from: lastTS) {
-            return fmt.string(from: prev.addingTimeInterval(-2))
+            // Now that the watermark only advances on success, it can sit still across a run of
+            // failures. Floor the lookback at 2h so the query cost stays bounded — `log show` time
+            // scales with the window, and 2h already measures ~29s.
+            let floor = Date(timeIntervalSinceNow: -2 * 60 * 60)
+            return fmt.string(from: max(prev.addingTimeInterval(-2), floor))
         }
         return nil
     }
