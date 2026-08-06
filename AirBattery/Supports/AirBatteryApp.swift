@@ -20,8 +20,7 @@ var pinnedItems = [NSStatusItem]()
 var netcastService: MultipeerService = MultipeerService(serviceType: "airbattery-nc")
 let ncFolder = fd.urls(for: .libraryDirectory, in: .userDomainMask).first!.appendingPathComponent("Containers/\(AirBatteryModel.key)/Data/Documents/NearcastData")
 let systemUUID = getMacDeviceUUID()
-var dockWindow = AutoHideWindow()
-var menuPopover = NSPopover()
+var deviceDropdownWindow = AutoHideWindow()
 let bleBattery = BLEBattery()
 let btdBattery = BTDBattery()
 var updateDelay = 1
@@ -72,6 +71,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     
     //var statusMenu: NSMenu = NSMenu()
     var menu: NSMenu = NSMenu()
+    /// Right-click menu for the status bar item. Kept separate from `menu` (the Dock tile menu) because
+    /// it's attached to `statusBarItem` on demand and detached again on close, so left-click keeps
+    /// opening the device dropdown instead of the menu.
+    var statusBarMenu: NSMenu = NSMenu()
     var startTime = Date()
     let nc = NSWorkspace.shared.notificationCenter
     
@@ -95,76 +98,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
             openSettingPanel()
             return false
         }
-        if dockWindow.isVisible {
-            dockWindow.orderOut(nil)
+        if deviceDropdownWindow.isVisible {
+            deviceDropdownWindow.dismiss()
         } else {
-            orderOutAirBatterySettingsWindow()
-            var allDevices = AirBatteryModel.getAll()
-            let ibStatus = InternalBattery.status
-            if ibStatus.hasBattery { allDevices.insert(ib2ab(ibStatus), at: 0) }
-            let contentViewSwiftUI = popover(fromDock: true, allDevice: allDevices)
-            let contentView = NSHostingView(rootView: contentViewSwiftUI)
-            let hiddenRow = AirBatteryModel.getBlackList().count > 0 ? 1 : 0
-            let allNearcast = getFiles(withExtension: "json", in: ncFolder)
-            var ncCount = 0
-            var ncDeviceCount = 0
-            for jsonUrl in allNearcast {
-                let count = AirBatteryModel.ncGetAll(url: jsonUrl).count
-                if count != 0 {
-                    ncCount += 7
-                    ncDeviceCount += count
-                }
-            }
-            let nearCastOn = ud.bool(forKey: "nearCast")
-            let actionColumnHeight = nearCastOn ? 200 : 150
-            let menuHeight = CGFloat((max(max(allDevices.count,1)+ncDeviceCount,1)+hiddenRow)*37+actionColumnHeight+ncCount)
-            let mouse = NSEvent.mouseLocation
-            var menuX = mouse.x
-            var menuY = mouse.y
-            if let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) {
-                let visibleFrame = screen.visibleFrame
-                var dockOrientation = "bottom"
-                if let defaults = UserDefaults(suiteName: "com.apple.dock"), let orientation = defaults.string(forKey: "orientation") { dockOrientation = orientation }
-                switch dockOrientation {
-                case "bottom":
-                    // Dock 位于屏幕底部
-                    //menuX = menuX + 186 > visibleFrame.maxX ? visibleFrame.maxX - 362 : menuX - 176
-                    if menuX + 186 > visibleFrame.maxX {
-                        menuX = visibleFrame.maxX - 362
-                    } else if menuX - 166 < visibleFrame.minX {
-                        menuX = visibleFrame.minX + 10
-                    } else {
-                        menuX = menuX - 176
-                    }
-                    menuY = max(menuY, visibleFrame.origin.y) + 20
-                case "right":
-                    // Dock 位于屏幕右侧
-                    menuX = menuX + 352 > visibleFrame.maxX ? visibleFrame.maxX - 372 : menuX + 10
-                    menuY = max(menuY - menuHeight/2, visibleFrame.origin.y)
-                case "left":
-                    // Dock 位于屏幕左侧
-                    menuX = menuX + 352 > visibleFrame.maxX ? visibleFrame.maxX - 372 : menuX
-                    menuX = menuX < visibleFrame.origin.x ? visibleFrame.origin.x + 20 : menuX + 10
-                    menuY = max(menuY - menuHeight/2, visibleFrame.origin.y)
-                default:
-                    print("⚠️ Failed to get Dock orientation!")
-                }
-            }
-            contentView.frame = NSRect(x: menuX, y: menuY, width: 352, height: menuHeight)
-            dockWindow = AutoHideWindow(contentRect: contentView.frame, styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
-            dockWindow.title = "AirBattery Dock Window"
-            dockWindow.level = .popUpMenu
-            dockWindow.contentView = contentView
-            dockWindow.isOpaque = false
-            dockWindow.backgroundColor = NSColor.clear
-            dockWindow.contentView?.wantsLayer = true
-            if #available(macOS 26, *) {
-                dockWindow.contentView?.layer?.cornerRadius = dockFloatingPanelCornerRadius
-            } else {
-                dockWindow.contentView?.layer?.cornerRadius = 7
-            }
-            dockWindow.contentView?.layer?.masksToBounds = true
-            dockWindow.makeKeyAndOrderFront(nil)
+            presentDeviceDropdown(fromDock: true)
         }
         // Returning true lets AppKit run default reopen handling, which also fronts the SwiftUI settings `Window` — so Dock would show both panels.
         return false
@@ -199,7 +136,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds, .withTimeZone]
         menu.addItem(withTitle:"Settings...".local, action: #selector(openSetting), keyEquivalent: "")
         menu.addItem(withTitle:"About AirBattery".local, action: #selector(openAbout), keyEquivalent: "")
-        
+
+        statusBarMenu.delegate = self
+        statusBarMenu.addItem(withTitle: "Settings...".local, action: #selector(openSetting), keyEquivalent: "")
+        statusBarMenu.addItem(withTitle: "About AirBattery".local, action: #selector(openAbout), keyEquivalent: "")
+        statusBarMenu.addItem(.separator())
+        statusBarMenu.addItem(withTitle: "Quit AirBattery".local, action: #selector(quitApp), keyEquivalent: "")
+        // The status item menu isn't in the responder chain, so each item needs an explicit target.
+        for item in statusBarMenu.items { item.target = self }
+
         //处理旧版偏好设置
         if let alertList = (ud.object(forKey: "alertList") ?? []) as? [String] {
             let alerts: [btAlert] = alertList.map({
@@ -265,6 +210,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
             button.addSubview(iconView)
             button.frame = iconView.frame
             button.action = #selector(togglePopover(_ :))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         statusBarItem.isVisible = !(showOn == "dock" || showOn == "none")
         NSApp.dockTile.contentView = NSHostingView(rootView: MultiBatteryView())
@@ -387,21 +333,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     }*/
     
     @objc func togglePopover(_ sender: Any?) {
-        if let button = statusBarItem.button, !menuPopover.isShown {
-            var allDevices = AirBatteryModel.getAll()
-            let ibStatus = InternalBattery.status
-            if ibStatus.hasBattery { allDevices.insert(ib2ab(ibStatus), at: 0) }
-            let contentView = NSHostingController(rootView: popover(fromDock: false, allDevice: allDevices))
-            contentView.view.wantsLayer = true
-            contentView.view.layer?.backgroundColor = NSColor.clear.cgColor
-            menuPopover.setValue(true, forKeyPath: "shouldHideAnchor")
-            menuPopover.contentViewController = contentView
-            menuPopover.behavior = .transient
-            var bound = button.bounds
-            if getMenuBarHeight() == 24.0 { bound.origin.y -= 6 }
-            menuPopover.show(relativeTo: bound, of: button, preferredEdge: .minY)
-            //menuPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            menuPopover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
+        if let event = NSApp.currentEvent,
+           event.type == .rightMouseUp || (event.type == .leftMouseUp && event.modifierFlags.contains(.control)) {
+            showStatusBarMenu()
+            return
+        }
+        if deviceDropdownWindow.isVisible {
+            deviceDropdownWindow.dismiss()
+        } else {
+            presentDeviceDropdown(fromDock: false)
         }
     }
     
@@ -423,18 +363,156 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         }
     }
      
+    /// Attaching the menu and re-clicking the button is what makes AppKit draw it as a proper status
+    /// item menu (highlighted item, anchored under the icon); `popUp(positioning:)` on the button
+    /// loses that. `menuDidClose` detaches it again so the next left click still opens the dropdown.
+    private func showStatusBarMenu() {
+        deviceDropdownWindow.dismiss()
+        statusBarItem.menu = statusBarMenu
+        statusBarItem.button?.performClick(nil)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        guard menu === statusBarMenu else { return }
+        // Clearing it inside the close callback confuses AppKit's menu tracking, so defer a runloop turn.
+        DispatchQueue.main.async { statusBarItem.menu = nil }
+    }
+
     @objc func openAbout() {
         openAboutPanel()
     }
-    
+
     @objc func openSetting() {
         openSettingPanel()
     }
-    
+
+    @objc func quitApp() {
+        NSApp.terminate(self)
+    }
+
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
-        dockWindow.orderOut(nil)
+        deviceDropdownWindow.dismiss()
         return menu
     }
+}
+
+/// Builds and shows the transparent Liquid Glass device dropdown. Replaces the old `NSPopover`
+/// (status bar) and inline window-building code (Dock) with one shared borderless-window
+/// presenter, since `NSPopover`'s system chrome can't be made transparent for the capsule design.
+func presentDeviceDropdown(fromDock: Bool) {
+    orderOutAirBatterySettingsWindow()
+    deviceDropdownWindow.dismiss() // tear down the previous presentation's monitors
+    var allDevices = AirBatteryModel.getAll()
+    let ibStatus = InternalBattery.status
+    if ibStatus.hasBattery { allDevices.insert(ib2ab(ibStatus), at: 0) }
+
+    var deviceCount = allDevices.count
+    if ud.bool(forKey: "nearCast") {
+        for jsonUrl in getFiles(withExtension: "json", in: ncFolder) {
+            deviceCount += AirBatteryModel.ncGetAll(url: jsonUrl).count
+        }
+    }
+    let panelSize = NSSize(width: dropdownPanelWidth, height: estimatedDropdownHeight(deviceCount: deviceCount))
+    let origin = fromDock ? dockAnchoredDropdownOrigin(panelSize: panelSize) : statusBarAnchoredDropdownOrigin(panelSize: panelSize)
+    let frame = NSRect(origin: origin, size: panelSize)
+
+    // Reuse the window and hosting view rather than rebuilding them per open. Constructing a fresh
+    // window each time forced the glass to re-establish and re-sample its backdrop from scratch,
+    // which is what made the panel take a beat to settle to the right colour every time it opened.
+    let contentView = configuredDropdownHostingView()
+    contentView.rootView = popover(fromDock: fromDock, allDevice: allDevices)
+    deviceDropdownWindow.title = fromDock ? "AirBattery Dock Window" : "AirBattery Menu Bar Window"
+    deviceDropdownWindow.setFrame(frame, display: false)
+    contentView.frame = NSRect(origin: .zero, size: panelSize)
+    // Lay out and render before the window is shown, so the first frame the user sees is already
+    // sampled against the current backdrop instead of adapting after it appears.
+    contentView.layoutSubtreeIfNeeded()
+    deviceDropdownWindow.displayIfNeeded()
+    deviceDropdownWindow.makeKeyAndOrderFront(nil)
+    deviceDropdownWindow.installDismissMonitors()
+}
+
+private var dropdownHostingView: NSHostingView<popover>?
+
+/// Creates the panel's hosting view on first use and configures the shared window once.
+private func configuredDropdownHostingView() -> NSHostingView<popover> {
+    if let existing = dropdownHostingView { return existing }
+
+    let view = NSHostingView(rootView: popover(fromDock: false, allDevice: []))
+    view.wantsLayer = true
+    view.layer?.backgroundColor = NSColor.clear.cgColor
+
+    // `.nonactivatingPanel` lets the panel take key focus without activating AirBattery, so its
+    // glass materials render in the active (coloured, live-blur) state — see `AutoHideWindow`.
+    deviceDropdownWindow.styleMask = [.nonactivatingPanel, .fullSizeContentView]
+    deviceDropdownWindow.becomesKeyOnlyIfNeeded = false
+    deviceDropdownWindow.hidesOnDeactivate = false
+    deviceDropdownWindow.level = .popUpMenu
+    // Fully transparent: there is no panel backdrop, so the capsules float directly over the
+    // desktop and each carries its own glass. `hasShadow` is off because AppKit would otherwise
+    // cast a rectangular window shadow around the empty area between the floating capsules.
+    deviceDropdownWindow.isOpaque = false
+    deviceDropdownWindow.backgroundColor = NSColor.clear
+    deviceDropdownWindow.hasShadow = false
+    deviceDropdownWindow.contentView = view
+
+    dropdownHostingView = view
+    return view
+}
+
+/// Positions the dropdown near the Dock click point, clamped per the Dock's screen edge (same
+/// orientation-aware clamping the old inline Dock window code used).
+private func dockAnchoredDropdownOrigin(panelSize: NSSize) -> NSPoint {
+    let mouse = NSEvent.mouseLocation
+    var menuX = mouse.x
+    var menuY = mouse.y
+    guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) else {
+        return NSPoint(x: menuX, y: menuY)
+    }
+    let visibleFrame = screen.visibleFrame
+    var dockOrientation = "bottom"
+    if let defaults = UserDefaults(suiteName: "com.apple.dock"), let orientation = defaults.string(forKey: "orientation") { dockOrientation = orientation }
+    switch dockOrientation {
+    case "bottom":
+        if menuX + 186 > visibleFrame.maxX {
+            menuX = visibleFrame.maxX - panelSize.width - 10
+        } else if menuX - 166 < visibleFrame.minX {
+            menuX = visibleFrame.minX + 10
+        } else {
+            menuX = menuX - 176
+        }
+        menuY = max(menuY, visibleFrame.origin.y) + 20
+    case "right":
+        menuX = menuX + panelSize.width - 10 > visibleFrame.maxX ? visibleFrame.maxX - panelSize.width - 20 : menuX + 10
+        menuY = max(menuY - panelSize.height / 2, visibleFrame.origin.y)
+    case "left":
+        menuX = menuX + panelSize.width - 10 > visibleFrame.maxX ? visibleFrame.maxX - panelSize.width - 20 : menuX
+        menuX = menuX < visibleFrame.origin.x ? visibleFrame.origin.x + 20 : menuX + 10
+        menuY = max(menuY - panelSize.height / 2, visibleFrame.origin.y)
+    default:
+        print("⚠️ Failed to get Dock orientation!")
+    }
+    return NSPoint(x: menuX, y: menuY)
+}
+
+/// Positions the dropdown directly under the status bar button, clamped to the active screen —
+/// replaces `NSPopover.show(relativeTo:of:preferredEdge:)`.
+private func statusBarAnchoredDropdownOrigin(panelSize: NSSize) -> NSPoint {
+    guard let button = statusBarItem.button, let buttonWindow = button.window else {
+        let mouse = NSEvent.mouseLocation
+        return NSPoint(x: mouse.x - panelSize.width / 2, y: mouse.y - panelSize.height)
+    }
+    let buttonFrameInWindow = button.convert(button.bounds, to: nil)
+    let buttonFrameOnScreen = buttonWindow.convertToScreen(buttonFrameInWindow)
+    var x = buttonFrameOnScreen.midX - panelSize.width / 2
+    var y = buttonFrameOnScreen.minY - panelSize.height - 6
+
+    let referenceScreen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }) ?? buttonWindow.screen ?? NSScreen.main
+    if let visibleFrame = referenceScreen?.visibleFrame {
+        x = min(max(x, visibleFrame.minX + 10), visibleFrame.maxX - panelSize.width - 10)
+        y = max(y, visibleFrame.minY + 10)
+    }
+    return NSPoint(x: x, y: y)
 }
 
 class NNSWindow: NSWindow {
@@ -443,14 +521,81 @@ class NNSWindow: NSWindow {
     }
 }
 
-class AutoHideWindow: NSWindow {
+/// Borderless dropdown panel that dismisses as soon as focus leaves it, mirroring `NSPopover`'s
+/// old `.transient` behavior.
+///
+/// `resignKey` alone is not enough: AirBattery usually runs as an accessory app
+/// (`.accessory` activation policy), so this panel often never becomes key in the first place and
+/// therefore never resigns. The event monitors below are what actually make click-outside work —
+/// `resignKey` is kept as a backstop for the case where the panel *did* hold focus.
+/// An `NSPanel` (not a plain `NSWindow`) specifically so it can carry `.nonactivatingPanel`.
+///
+/// AirBattery normally runs as an accessory app, so a plain window here never becomes key. macOS
+/// then renders every vibrancy/glass material in its *inactive* state — which desaturates the tier
+/// colours to grey and collapses the panel's live blur into a flat grey slab. A non-activating
+/// panel can take key focus *without* activating the whole app (the same trick `NSPopover` uses for
+/// menu-bar UI), so the glass stays live and coloured while the user's frontmost app is untouched.
+class AutoHideWindow: NSPanel {
+    private var dismissMonitors: [Any] = []
+
     override var canBecomeKey: Bool {
         return true
     }
-    
+
     override func resignKey() {
         super.resignKey()
-        self.orderOut(nil)
+        dismiss()
+    }
+
+    /// Starts watching for clicks outside the panel (and for Escape). Safe to call repeatedly.
+    func installDismissMonitors() {
+        removeDismissMonitors()
+        let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+
+        // Clicks in any other application.
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: clicks, handler: { [weak self] _ in
+            self?.dismiss()
+        }) {
+            dismissMonitors.append(global)
+        }
+
+        // Clicks elsewhere in AirBattery itself. Clicks landing in the panel keep it open, and
+        // clicks on the status item are left to `togglePopover` — dismissing here too would let it
+        // immediately reopen the panel it just closed.
+        if let local = NSEvent.addLocalMonitorForEvents(matching: clicks, handler: { [weak self] event in
+            guard let self else { return event }
+            if event.window !== self && event.window !== statusBarItem?.button?.window {
+                self.dismiss()
+            }
+            return event
+        }) {
+            dismissMonitors.append(local)
+        }
+
+        if let escape = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
+            if event.keyCode == 53 { // Escape
+                self?.dismiss()
+                return nil
+            }
+            return event
+        }) {
+            dismissMonitors.append(escape)
+        }
+    }
+
+    private func removeDismissMonitors() {
+        for monitor in dismissMonitors { NSEvent.removeMonitor(monitor) }
+        dismissMonitors.removeAll()
+    }
+
+    /// Hides the panel and stops the monitors. Idempotent.
+    func dismiss() {
+        removeDismissMonitors()
+        orderOut(nil)
+    }
+
+    deinit {
+        removeDismissMonitors()
     }
 }
 

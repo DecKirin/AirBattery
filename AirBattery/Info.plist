@@ -15,6 +15,10 @@
 	</array>
 	<key>NSAppleScriptEnabled</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>AirBattery uses Bluetooth to get the battery information of nearby devices.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>AirBattery uses the local network to get the battery information of nearby devices.</string>
 	<key>NSDisableAutomaticTermination</key>
 	<true/>
 	<key>NSSupportsSuddenTermination</key>

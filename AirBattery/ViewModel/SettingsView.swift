@@ -169,6 +169,15 @@ struct GeneralView: View {
             }
             Section {
                 LabeledContent {
+                    Button("Open") { openAboutPanel() }
+                } label: {
+                    Text("About AirBattery")
+                }
+            } header: {
+                Text("About")
+            }
+            Section {
+                LabeledContent {
                     HStack(spacing: 8) {
                         SInfoButton(tips: "After installation, you can run \"airbattery\" in yor terminal to list all devices.")
                         Button(cltInstalled ? "Uninstall" : "Install") {
@@ -325,6 +334,12 @@ struct NearcastView: View {
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 } label: {
                     Text("Local ID")
+                }
+                LabeledContent {
+                    Button("Refresh Now") { netcastService.refeshAll() }
+                        .disabled(!nearCast)
+                } label: {
+                    Text("Peers")
                 }
             } header: {
                 Text("Peer Info")
@@ -496,6 +511,7 @@ struct BlacklistView: View {
     @State private var temp = ""
     @State private var showSheet = false
     @State private var editingIndex: Int?
+    @State private var hiddenItems = [String]()
 
     var body: some View {
         Form {
@@ -506,6 +522,33 @@ struct BlacklistView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+            Section {
+                List {
+                    ForEach(hiddenItems, id: \.self) { name in
+                        HStack {
+                            Button {
+                                unhideDevice(name)
+                            } label: {
+                                Image(systemName: "eye.slash.circle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.borderless)
+                            Text(name)
+                        }
+                    }
+                }
+                .listStyle(.inset)
+                .frame(minHeight: 80)
+                .environment(\.defaultMinListRowHeight, 28)
+            } header: {
+                Text("Hidden Devices")
+            } footer: {
+                Text("Devices hidden from the dropdown via the eye icon. Click to unhide.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .onAppear { hiddenItems = AirBatteryModel.getBlackList().map { $0.deviceName } }
             Section {
                 List {
                     ForEach(Array(blockedItems.enumerated()), id: \.offset) { index, name in
@@ -546,6 +589,15 @@ struct BlacklistView: View {
         }
         .onAppear { blockedItems = (ud.object(forKey: "blockedDevices") as? [String]) ?? [String]() }
         .onChange(of: blockedItems) { b in ud.setValue(b, forKey: "blockedDevices") }
+    }
+
+    private func unhideDevice(_ name: String) {
+        var blackList = (ud.object(forKey: "blackList") ?? []) as! [String]
+        blackList.removeAll { $0 == name }
+        ud.set(blackList, forKey: "blackList")
+        hiddenItems.removeAll { $0 == name }
+        let pinnedList = (ud.object(forKey: "pinnedList") ?? []) as! [String]
+        if pinnedList.contains(name) { refeshPinnedBar() }
     }
 
     @ViewBuilder private var addDeviceSheet: some View {
