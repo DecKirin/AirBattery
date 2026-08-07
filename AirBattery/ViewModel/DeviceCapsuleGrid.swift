@@ -70,9 +70,14 @@ enum DropdownTheme: String, CaseIterable, Identifiable {
 // `NSAppearance` alone is not enough to pin the panel. Liquid Glass samples the desktop behind it
 // and `.primary`/`.secondary` are *vibrancy* styles, so a moment after the window appears they
 // re-resolve against that backdrop — the panel would flash the chosen theme and then drift back to
-// tracking the wallpaper. Pinned modes therefore avoid both mechanisms: `.regularMaterial` instead
-// of `glassEffect` (it honours the colour scheme without re-sampling), and explicit colours instead
-// of vibrancy styles (vibrancy leaves concrete colours alone).
+// tracking the wallpaper. Pinned modes fix the content inks with concrete colours (vibrancy leaves
+// those alone) and tint the glass to bias its base tone.
+//
+// A pinned mode is therefore a *partial* pin, by choice. Fully fixing the tone means occluding the
+// backdrop, and occluding the backdrop is precisely what flattens the capsule — an opaque base
+// layer was tried and it read as a flat plate while still greying out over a dark wallpaper. Since
+// the two goals are in direct tension, this keeps the glass intact and accepts that pinned modes
+// still shift somewhat with the desktop. Adaptive remains the default and is unaffected.
 
 private struct DropdownPinnedSchemeKey: EnvironmentKey {
     static let defaultValue: ColorScheme? = nil
