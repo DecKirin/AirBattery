@@ -50,8 +50,89 @@ enum DropdownTheme: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The scheme this theme pins to, or `nil` when adaptive.
+    var pinnedScheme: ColorScheme? {
+        switch self {
+        case .adaptive: nil
+        case .system: systemPrefersDark ? .dark : .light
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+
     private var systemPrefersDark: Bool {
         NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+}
+
+// MARK: - Pinned-theme plumbing
+//
+// `NSAppearance` alone is not enough to pin the panel. Liquid Glass samples the desktop behind it
+// and `.primary`/`.secondary` are *vibrancy* styles, so a moment after the window appears they
+// re-resolve against that backdrop — the panel would flash the chosen theme and then drift back to
+// tracking the wallpaper. Pinned modes therefore avoid both mechanisms: `.regularMaterial` instead
+// of `glassEffect` (it honours the colour scheme without re-sampling), and explicit colours instead
+// of vibrancy styles (vibrancy leaves concrete colours alone).
+
+private struct DropdownPinnedSchemeKey: EnvironmentKey {
+    static let defaultValue: ColorScheme? = nil
+}
+
+extension EnvironmentValues {
+    /// Non-nil when the dropdown is pinned to a fixed light/dark theme.
+    var dropdownPinnedScheme: ColorScheme? {
+        get { self[DropdownPinnedSchemeKey.self] }
+        set { self[DropdownPinnedSchemeKey.self] = newValue }
+    }
+}
+
+/// Publishes the selected theme into the environment. Reads `@AppStorage` so the panel and the
+/// Settings preview both follow the picker without any manual refresh.
+struct DropdownThemeEnvironment: ViewModifier {
+    @AppStorage("dropdownTheme") private var raw = DropdownTheme.adaptive.rawValue
+    var override: DropdownTheme?
+
+    init(override: DropdownTheme? = nil) { self.override = override }
+
+    func body(content: Content) -> some View {
+        let scheme = (override ?? DropdownTheme(rawValue: raw) ?? .adaptive).pinnedScheme
+        content
+            .environment(\.dropdownPinnedScheme, scheme)
+            .modifier(ConditionalScheme(scheme: scheme))
+    }
+}
+
+/// Applies `colorScheme` only when pinned, leaving it untouched in adaptive mode.
+private struct ConditionalScheme: ViewModifier {
+    var scheme: ColorScheme?
+    func body(content: Content) -> some View {
+        if let scheme { content.colorScheme(scheme) } else { content }
+    }
+}
+
+/// Which ink a piece of dropdown content uses.
+enum DropdownInk { case primary, secondary }
+
+private struct DropdownForeground: ViewModifier {
+    var ink: DropdownInk
+    var opacity: Double
+    @Environment(\.dropdownPinnedScheme) private var pinned
+
+    func body(content: Content) -> some View {
+        if let pinned {
+            let base: Color = (pinned == .dark) ? .white : .black
+            let level = (ink == .secondary) ? 0.6 : 1.0
+            return AnyView(content.foregroundStyle(base.opacity(level * opacity)))
+        }
+        let style: AnyShapeStyle = (ink == .secondary) ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary)
+        return AnyView(content.foregroundStyle(style.opacity(opacity)))
+    }
+}
+
+extension View {
+    /// Vibrancy-safe foreground: hierarchical styles when adaptive, concrete colours when pinned.
+    func dropdownForeground(_ ink: DropdownInk, opacity: Double = 1.0) -> some View {
+        modifier(DropdownForeground(ink: ink, opacity: opacity))
     }
 }
 
@@ -79,53 +160,86 @@ func estimatedDropdownHeight(deviceCount: Int) -> CGFloat {
 // MARK: - Chrome (per-element Liquid Glass)
 //
 // There is deliberately no panel-wide backdrop: the window is fully transparent and each capsule,
-// badge and toolbar button carries its own glass, so they float over the desktop. Everything here
-// is appearance-agnostic (`.primary`/`.secondary`, never hardcoded white) because the glass follows
-// the system appearance and has to stay legible in both.
+// badge and toolbar button carries its own glass, so they float over the desktop.
+//
+// In ADAPTIVE mode the content is appearance-agnostic (`.primary`/`.secondary`, never hardcoded
+// white) and the glass is applied *to the content view itself*, never stacked behind it as a
+// sibling layer. That distinction is what makes those styles pick up vibrancy and track the
+// backdrop; as a detached `.background { }` the glass adapted but its icons and text stayed locked
+// to the system-appearance colour and went unreadable on dark wallpapers.
+//
+// In a PINNED mode that same vibrancy is the bug rather than the feature — it is what dragged the
+// panel back to the wallpaper a second after it opened. Pinned modes therefore go the other way on
+// purpose: `.regularMaterial` rather than `glassEffect`, and concrete colours (via
+// `dropdownForeground`) rather than hierarchical styles. See the pinned-theme plumbing above.
+/// Neutral chrome behind the capsule track, the badge and the empty-state pill.
+///
+/// `glassEffect` only in adaptive mode: it is the thing that samples the desktop, so a pinned theme
+/// has to use `.regularMaterial`, which honours the colour scheme and stays put.
+private struct ChromeGlass<S: InsettableShape>: ViewModifier {
+    var shape: S
+    @Environment(\.dropdownPinnedScheme) private var pinned
 
-// Glass is always applied *to the content view itself*, never stacked behind it as a sibling
-// layer. That distinction is what makes `.primary`/`.secondary` foreground styles pick up vibrancy
-// and track the backdrop; as a detached `.background { }` the glass adapted but its icons and text
-// stayed locked to the system-appearance colour and went unreadable on dark wallpapers.
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *), pinned == nil {
+            content.glassEffect(.regular, in: shape)
+        } else {
+            content.background(.regularMaterial, in: shape)
+        }
+    }
+}
+
+private struct ToolbarGlass: ViewModifier {
+    @Environment(\.dropdownPinnedScheme) private var pinned
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *), pinned == nil {
+            content.glassEffect(.regular.interactive(), in: Circle())
+        } else {
+            content.background(.regularMaterial, in: Circle())
+        }
+    }
+}
+
 extension View {
     /// Neutral Liquid Glass — the capsule "track" and the empty-state pill.
-    @ViewBuilder
     func chromeGlassBackground<S: InsettableShape>(in shape: S) -> some View {
-        if #available(macOS 26, *) {
-            self.glassEffect(.regular, in: shape)
-        } else {
-            self.background(.regularMaterial, in: shape)
-        }
+        modifier(ChromeGlass(shape: shape))
     }
 
     /// The capsule track, which wraps the juice and the device label.
-    @ViewBuilder
     func capsuleGlassBackground() -> some View {
-        self.chromeGlassBackground(in: Capsule(style: .continuous))
+        chromeGlassBackground(in: Capsule(style: .continuous))
     }
 
     /// Round glass for the toolbar buttons. `.interactive()` gives the native Liquid Glass
     /// hover/press response, so no manual opacity swapping is needed.
-    @ViewBuilder
     func toolbarGlassBackground() -> some View {
-        if #available(macOS 26, *) {
-            self.glassEffect(.regular.interactive(), in: Circle())
-        } else {
-            self.background(.regularMaterial, in: Circle())
-        }
+        modifier(ToolbarGlass())
     }
 }
 
 /// Tinted Liquid Glass in a battery-tier color — the capsule "juice".
 /// The tint carries the colour; no opaque fill underneath, so the glass stays translucent and the
-/// panel keeps showing through it.
-@ViewBuilder
-func tieredGlass<S: InsettableShape>(_ shape: S, color: Color, fallbackOpacity: Double = 0.55) -> some View {
-    if #available(macOS 26, *) {
-        Color.clear.glassEffect(.regular.tint(color.opacity(0.55)), in: shape)
-    } else {
-        shape.fill(color.opacity(fallbackOpacity))
+/// panel keeps showing through it. Pinned themes take the flat-fill path for the same reason as the
+/// chrome above.
+struct TieredGlass<S: InsettableShape>: View {
+    var shape: S
+    var color: Color
+    var fallbackOpacity: Double = 0.55
+    @Environment(\.dropdownPinnedScheme) private var pinned
+
+    var body: some View {
+        if #available(macOS 26, *), pinned == nil {
+            Color.clear.glassEffect(.regular.tint(color.opacity(0.55)), in: shape)
+        } else {
+            shape.fill(color.opacity(fallbackOpacity))
+        }
     }
+}
+
+func tieredGlass<S: InsettableShape>(_ shape: S, color: Color, fallbackOpacity: Double = 0.55) -> some View {
+    TieredGlass(shape: shape, color: color, fallbackOpacity: fallbackOpacity)
 }
 
 // MARK: - Toolbar buttons
@@ -139,7 +253,7 @@ struct CircleGlassButton: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(.primary)
+                .dropdownForeground(.primary)
                 .frame(width: dropdownToolbarButtonSize, height: dropdownToolbarButtonSize)
                 .toolbarGlassBackground()
         }
@@ -165,7 +279,7 @@ struct BatteryHealthRing: View {
                 Text("\(health)")
                     .font(.system(size: 12, weight: .semibold))
                     .monospacedDigitIfAvailable()
-                    .foregroundStyle(.primary)
+                    .dropdownForeground(.primary)
             }
             .padding(6)
             .frame(width: dropdownToolbarButtonSize, height: dropdownToolbarButtonSize)
@@ -263,11 +377,11 @@ struct DeviceCapsuleView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 14, height: 14)
-                .foregroundStyle(.primary)
+                .dropdownForeground(.primary)
             if device.hasBattery {
                 Text("\(device.batteryLevel)%")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .dropdownForeground(.primary)
                     .monospacedDigitIfAvailable()
             }
         }
@@ -283,14 +397,14 @@ struct DeviceCapsuleView: View {
             HStack(spacing: 3) {
                 Text((isStale ? "⚠︎ " : "") + device.deviceName)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .dropdownForeground(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 if isAlerting {
-                    Image(systemName: "bell.fill").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Image(systemName: "bell.fill").font(.system(size: 9)).dropdownForeground(.secondary)
                 }
                 if isPinned {
-                    Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Image(systemName: "pin.fill").font(.system(size: 9)).dropdownForeground(.secondary)
                 }
             }
             if isHovered && device.hasBattery {
@@ -318,11 +432,11 @@ struct DeviceCapsuleView: View {
                         }.buttonStyle(.plain)
                     }
                 }
-                .foregroundStyle(.primary.opacity(0.85))
+                .dropdownForeground(.primary, opacity: 0.85)
             } else {
                 Text(subtitleText)
                     .font(.system(size: 10, weight: .regular))
-                    .foregroundStyle(.secondary)
+                    .dropdownForeground(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }

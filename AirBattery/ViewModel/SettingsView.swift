@@ -474,6 +474,9 @@ private struct DropdownThemePreview: View {
                 }
                 .padding(.horizontal, dropdownOuterPadding)
                 .padding(.vertical, dropdownOuterPadding - dropdownBadgeOverlap / 2)
+                // Same opt-out as the real panel, driven by the theme being previewed rather than
+                // the stored one, so the preview matches what the picker is currently showing.
+                .modifier(DropdownThemeEnvironment(override: theme))
             }
         }
         .frame(height: dropdownCapsuleCellHeight + dropdownOuterPadding * 2 - dropdownBadgeOverlap)

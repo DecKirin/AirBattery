@@ -339,6 +339,9 @@ struct popover: View {
         .padding(dropdownOuterPadding)
         .frame(width: dropdownPanelWidth)
         .fixedSize(horizontal: false, vertical: true)
+        // Publishes the selected theme so the capsules can opt out of backdrop-sampling glass and
+        // vibrancy inks when pinned — `NSAppearance` on the window only fixes the first frame.
+        .modifier(DropdownThemeEnvironment())
         // No panel backdrop: the capsules and toolbar buttons carry their own glass and float
         // directly over the desktop. Anything drawn here would re-introduce the container look.
         .background(Color.clear)
