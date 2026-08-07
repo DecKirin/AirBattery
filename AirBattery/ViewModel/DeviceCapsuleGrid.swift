@@ -169,20 +169,36 @@ func estimatedDropdownHeight(deviceCount: Int) -> CGFloat {
 // to the system-appearance colour and went unreadable on dark wallpapers.
 //
 // In a PINNED mode that same vibrancy is the bug rather than the feature — it is what dragged the
-// panel back to the wallpaper a second after it opened. Pinned modes therefore go the other way on
-// purpose: `.regularMaterial` rather than `glassEffect`, and concrete colours (via
-// `dropdownForeground`) rather than hierarchical styles. See the pinned-theme plumbing above.
-/// Neutral chrome behind the capsule track, the badge and the empty-state pill.
+// panel back to the wallpaper a second after it opened. Pinned modes keep the glass (its texture is
+// the look) and instead use concrete colours via `dropdownForeground`, plus a tint that pins the
+// glass's base tone. See the pinned-theme plumbing above.
+/// Tint that pins the glass's base tone without giving up the glass.
 ///
-/// `glassEffect` only in adaptive mode: it is the thing that samples the desktop, so a pinned theme
-/// has to use `.regularMaterial`, which honours the colour scheme and stays put.
+/// Dropping to `.regularMaterial` for pinned themes did hold the theme, but it also threw away the
+/// Liquid Glass texture — the refraction and specular edge are the whole look. Keeping
+/// `glassEffect` and tinting it instead retains that texture while stopping the base tone from
+/// reading as whatever happens to be behind the window. The content inks are pinned separately by
+/// `dropdownForeground`, which is what actually stopped the drift.
+private func pinnedGlassTint(_ scheme: ColorScheme?) -> Color? {
+    switch scheme {
+    case .dark: Color.black.opacity(0.42)
+    case .light: Color.white.opacity(0.42)
+    default: nil
+    }
+}
+
+/// Neutral chrome behind the capsule track, the badge and the empty-state pill.
 private struct ChromeGlass<S: InsettableShape>: ViewModifier {
     var shape: S
     @Environment(\.dropdownPinnedScheme) private var pinned
 
     func body(content: Content) -> some View {
-        if #available(macOS 26, *), pinned == nil {
-            content.glassEffect(.regular, in: shape)
+        if #available(macOS 26, *) {
+            if let tint = pinnedGlassTint(pinned) {
+                content.glassEffect(.regular.tint(tint), in: shape)
+            } else {
+                content.glassEffect(.regular, in: shape)
+            }
         } else {
             content.background(.regularMaterial, in: shape)
         }
@@ -193,8 +209,12 @@ private struct ToolbarGlass: ViewModifier {
     @Environment(\.dropdownPinnedScheme) private var pinned
 
     func body(content: Content) -> some View {
-        if #available(macOS 26, *), pinned == nil {
-            content.glassEffect(.regular.interactive(), in: Circle())
+        if #available(macOS 26, *) {
+            if let tint = pinnedGlassTint(pinned) {
+                content.glassEffect(.regular.tint(tint).interactive(), in: Circle())
+            } else {
+                content.glassEffect(.regular.interactive(), in: Circle())
+            }
         } else {
             content.background(.regularMaterial, in: Circle())
         }
@@ -221,16 +241,15 @@ extension View {
 
 /// Tinted Liquid Glass in a battery-tier color — the capsule "juice".
 /// The tint carries the colour; no opaque fill underneath, so the glass stays translucent and the
-/// panel keeps showing through it. Pinned themes take the flat-fill path for the same reason as the
-/// chrome above.
+/// panel keeps showing through it. This one is already tinted by the battery tier, so it never
+/// needed a pinned variant — it keeps its glass in every theme.
 struct TieredGlass<S: InsettableShape>: View {
     var shape: S
     var color: Color
     var fallbackOpacity: Double = 0.55
-    @Environment(\.dropdownPinnedScheme) private var pinned
 
     var body: some View {
-        if #available(macOS 26, *), pinned == nil {
+        if #available(macOS 26, *) {
             Color.clear.glassEffect(.regular.tint(color.opacity(0.55)), in: shape)
         } else {
             shape.fill(color.opacity(fallbackOpacity))
