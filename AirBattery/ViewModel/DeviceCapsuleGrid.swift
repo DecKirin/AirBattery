@@ -70,9 +70,14 @@ enum DropdownTheme: String, CaseIterable, Identifiable {
 // `NSAppearance` alone is not enough to pin the panel. Liquid Glass samples the desktop behind it
 // and `.primary`/`.secondary` are *vibrancy* styles, so a moment after the window appears they
 // re-resolve against that backdrop — the panel would flash the chosen theme and then drift back to
-// tracking the wallpaper. Pinned modes therefore avoid both mechanisms: `.regularMaterial` instead
-// of `glassEffect` (it honours the colour scheme without re-sampling), and explicit colours instead
-// of vibrancy styles (vibrancy leaves concrete colours alone).
+// tracking the wallpaper. Pinned modes fix the content inks with concrete colours (vibrancy leaves
+// those alone) and tint the glass to bias its base tone.
+//
+// A pinned mode is therefore a *partial* pin, by choice. Fully fixing the tone means occluding the
+// backdrop, and occluding the backdrop is precisely what flattens the capsule — an opaque base
+// layer was tried and it read as a flat plate while still greying out over a dark wallpaper. Since
+// the two goals are in direct tension, this keeps the glass intact and accepts that pinned modes
+// still shift somewhat with the desktop. Adaptive remains the default and is unaffected.
 
 private struct DropdownPinnedSchemeKey: EnvironmentKey {
     static let defaultValue: ColorScheme? = nil
@@ -179,24 +184,10 @@ func estimatedDropdownHeight(deviceCount: Int) -> CGFloat {
 /// `glassEffect` and tinting it instead retains that texture while stopping the base tone from
 /// reading as whatever happens to be behind the window. The content inks are pinned separately by
 /// `dropdownForeground`, which is what actually stopped the drift.
-/// A tint alone was not enough — the glass still tracked the desktop, just less than before. The
-/// tone is now carried by a base fill layered *above* the glass and below the content, so it
-/// composites deterministically instead of competing with what the glass samples. The glass keeps
-/// its refraction and specular edge underneath and around it.
 private func pinnedGlassTint(_ scheme: ColorScheme?) -> Color? {
     switch scheme {
-    case .dark: Color.black.opacity(0.55)
-    case .light: Color.white.opacity(0.55)
-    default: nil
-    }
-}
-
-/// Opaque-enough base that fixes the tone regardless of backdrop. Kept below 1.0 so the glass still
-/// reads as translucent rather than as a flat plate.
-private func pinnedBaseFill(_ scheme: ColorScheme?) -> Color? {
-    switch scheme {
-    case .dark: Color(white: 0.11).opacity(0.72)
-    case .light: Color(white: 0.97).opacity(0.72)
+    case .dark: Color.black.opacity(0.42)
+    case .light: Color.white.opacity(0.42)
     default: nil
     }
 }
@@ -208,12 +199,8 @@ private struct ChromeGlass<S: InsettableShape>: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(macOS 26, *) {
-            if let tint = pinnedGlassTint(pinned), let base = pinnedBaseFill(pinned) {
-                // `.background` first puts the fill directly behind the content; `.glassEffect`
-                // then goes behind that. Order matters: desktop -> glass -> base -> content.
-                content
-                    .background(shape.fill(base))
-                    .glassEffect(.regular.tint(tint), in: shape)
+            if let tint = pinnedGlassTint(pinned) {
+                content.glassEffect(.regular.tint(tint), in: shape)
             } else {
                 content.glassEffect(.regular, in: shape)
             }
@@ -228,10 +215,8 @@ private struct ToolbarGlass: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(macOS 26, *) {
-            if let tint = pinnedGlassTint(pinned), let base = pinnedBaseFill(pinned) {
-                content
-                    .background(Circle().fill(base))
-                    .glassEffect(.regular.tint(tint).interactive(), in: Circle())
+            if let tint = pinnedGlassTint(pinned) {
+                content.glassEffect(.regular.tint(tint).interactive(), in: Circle())
             } else {
                 content.glassEffect(.regular.interactive(), in: Circle())
             }
