@@ -396,8 +396,15 @@ private struct ThemedGlassPreview<Content: View>: NSViewRepresentable {
         self.content = content()
     }
 
+    /// Click-through: an `NSViewRepresentable`'s AppKit view does its own hit testing, which a
+    /// SwiftUI `.allowsHitTesting(false)` on the enclosing view does not necessarily suppress. The
+    /// preview is decorative, so it should never take a mouse event.
+    final class ClickThroughHostingView: NSHostingView<Content> {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
     func makeNSView(context: Context) -> NSHostingView<Content> {
-        let view = NSHostingView(rootView: content)
+        let view = ClickThroughHostingView(rootView: content)
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.clear.cgColor
         return view
@@ -475,6 +482,14 @@ private struct DropdownThemePreview: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(.separator, lineWidth: 1)
         )
+        // `.clipShape` clips drawing but NOT hit testing. The wallpaper is `.scaledToFill()`, so it
+        // renders far taller than this frame (a 1894x1065 picture in a 460x104 box draws 460x259)
+        // and its invisible overflow spilled ~77pt upward, over the Theme picker — later Form rows
+        // paint above earlier ones, so the picker rendered normally but never received a click.
+        // `.contentShape` confines the hit region to the visible rounded rect; the preview is
+        // decorative, so it opts out of hit testing entirely as well.
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Preview of the device dropdown")
     }
