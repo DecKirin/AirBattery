@@ -123,6 +123,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
                 "nearCast": false,
                 "readBTHID": true,
                 "whitelistMode": false,
+                "dropdownTheme": DropdownTheme.adaptive.rawValue,
                 "neverRemindMe": [String]()
             ]
         )
@@ -419,7 +420,11 @@ func presentDeviceDropdown(fromDock: Bool) {
     // Reuse the window and hosting view rather than rebuilding them per open. Constructing a fresh
     // window each time forced the glass to re-establish and re-sample its backdrop from scratch,
     // which is what made the panel take a beat to settle to the right colour every time it opened.
-    let contentView = configuredDropdownHostingView()
+    // Re-read on every presentation so a change in Settings takes effect the next time the panel
+    // opens. `nil` (adaptive) restores inheritance, so switching back off light/dark is not sticky.
+    let theme = DropdownTheme.current()
+    deviceDropdownWindow.appearance = theme.nsAppearance
+    let contentView = configuredDropdownHostingView(theme: theme)
     contentView.rootView = popover(fromDock: fromDock, allDevice: allDevices)
     deviceDropdownWindow.title = fromDock ? "AirBattery Dock Window" : "AirBattery Menu Bar Window"
     deviceDropdownWindow.setFrame(frame, display: false)
@@ -433,30 +438,46 @@ func presentDeviceDropdown(fromDock: Bool) {
 }
 
 private var dropdownHostingView: NSHostingView<popover>?
+private var dropdownWindowConfigured = false
+private var appliedDropdownTheme: DropdownTheme?
 
-/// Creates the panel's hosting view on first use and configures the shared window once.
-private func configuredDropdownHostingView() -> NSHostingView<popover> {
-    if let existing = dropdownHostingView { return existing }
+/// Creates the panel's hosting view and configures the shared window once, rebuilding the view when
+/// the theme changes.
+///
+/// The rebuild is the point. Setting only `NSWindow.appearance` does not re-resolve the Liquid Glass
+/// that an existing hosting view has already established, so switching theme in Settings appeared to
+/// do nothing until the app was relaunched — measured as a light/dark luminance delta of 22.8 across
+/// a relaunch but only 1.95 within one session. Reuse is still the common path (the theme rarely
+/// changes), which is what keeps the panel from re-sampling its backdrop on every open.
+private func configuredDropdownHostingView(theme: DropdownTheme) -> NSHostingView<popover> {
+    if !dropdownWindowConfigured {
+        // `.nonactivatingPanel` lets the panel take key focus without activating AirBattery, so its
+        // glass materials render in the active (coloured, live-blur) state — see `AutoHideWindow`.
+        deviceDropdownWindow.styleMask = [.nonactivatingPanel, .fullSizeContentView]
+        deviceDropdownWindow.becomesKeyOnlyIfNeeded = false
+        deviceDropdownWindow.hidesOnDeactivate = false
+        deviceDropdownWindow.level = .popUpMenu
+        // Fully transparent: there is no panel backdrop, so the capsules float directly over the
+        // desktop and each carries its own glass. `hasShadow` is off because AppKit would otherwise
+        // cast a rectangular window shadow around the empty area between the floating capsules.
+        deviceDropdownWindow.isOpaque = false
+        deviceDropdownWindow.backgroundColor = NSColor.clear
+        deviceDropdownWindow.hasShadow = false
+        dropdownWindowConfigured = true
+    }
+
+    if let existing = dropdownHostingView, appliedDropdownTheme == theme { return existing }
 
     let view = NSHostingView(rootView: popover(fromDock: false, allDevice: []))
     view.wantsLayer = true
     view.layer?.backgroundColor = NSColor.clear.cgColor
-
-    // `.nonactivatingPanel` lets the panel take key focus without activating AirBattery, so its
-    // glass materials render in the active (coloured, live-blur) state — see `AutoHideWindow`.
-    deviceDropdownWindow.styleMask = [.nonactivatingPanel, .fullSizeContentView]
-    deviceDropdownWindow.becomesKeyOnlyIfNeeded = false
-    deviceDropdownWindow.hidesOnDeactivate = false
-    deviceDropdownWindow.level = .popUpMenu
-    // Fully transparent: there is no panel backdrop, so the capsules float directly over the
-    // desktop and each carries its own glass. `hasShadow` is off because AppKit would otherwise
-    // cast a rectangular window shadow around the empty area between the floating capsules.
-    deviceDropdownWindow.isOpaque = false
-    deviceDropdownWindow.backgroundColor = NSColor.clear
-    deviceDropdownWindow.hasShadow = false
+    // Set on the view as well as the window: the view is what hosts the glass, and an explicit
+    // appearance here is what the SwiftUI environment resolves its colour scheme from.
+    view.appearance = theme.nsAppearance
     deviceDropdownWindow.contentView = view
 
     dropdownHostingView = view
+    appliedDropdownTheme = theme
     return view
 }
 
