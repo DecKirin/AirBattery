@@ -179,10 +179,24 @@ func estimatedDropdownHeight(deviceCount: Int) -> CGFloat {
 /// `glassEffect` and tinting it instead retains that texture while stopping the base tone from
 /// reading as whatever happens to be behind the window. The content inks are pinned separately by
 /// `dropdownForeground`, which is what actually stopped the drift.
+/// A tint alone was not enough — the glass still tracked the desktop, just less than before. The
+/// tone is now carried by a base fill layered *above* the glass and below the content, so it
+/// composites deterministically instead of competing with what the glass samples. The glass keeps
+/// its refraction and specular edge underneath and around it.
 private func pinnedGlassTint(_ scheme: ColorScheme?) -> Color? {
     switch scheme {
-    case .dark: Color.black.opacity(0.42)
-    case .light: Color.white.opacity(0.42)
+    case .dark: Color.black.opacity(0.55)
+    case .light: Color.white.opacity(0.55)
+    default: nil
+    }
+}
+
+/// Opaque-enough base that fixes the tone regardless of backdrop. Kept below 1.0 so the glass still
+/// reads as translucent rather than as a flat plate.
+private func pinnedBaseFill(_ scheme: ColorScheme?) -> Color? {
+    switch scheme {
+    case .dark: Color(white: 0.11).opacity(0.72)
+    case .light: Color(white: 0.97).opacity(0.72)
     default: nil
     }
 }
@@ -194,8 +208,12 @@ private struct ChromeGlass<S: InsettableShape>: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(macOS 26, *) {
-            if let tint = pinnedGlassTint(pinned) {
-                content.glassEffect(.regular.tint(tint), in: shape)
+            if let tint = pinnedGlassTint(pinned), let base = pinnedBaseFill(pinned) {
+                // `.background` first puts the fill directly behind the content; `.glassEffect`
+                // then goes behind that. Order matters: desktop -> glass -> base -> content.
+                content
+                    .background(shape.fill(base))
+                    .glassEffect(.regular.tint(tint), in: shape)
             } else {
                 content.glassEffect(.regular, in: shape)
             }
@@ -210,8 +228,10 @@ private struct ToolbarGlass: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(macOS 26, *) {
-            if let tint = pinnedGlassTint(pinned) {
-                content.glassEffect(.regular.tint(tint).interactive(), in: Circle())
+            if let tint = pinnedGlassTint(pinned), let base = pinnedBaseFill(pinned) {
+                content
+                    .background(Circle().fill(base))
+                    .glassEffect(.regular.tint(tint).interactive(), in: Circle())
             } else {
                 content.glassEffect(.regular.interactive(), in: Circle())
             }

@@ -30,11 +30,36 @@ if [ "x$1" = "xmac" ]; then
             echo "{\"time\": \"$time\", \"vid\": \"$vid\", \"pid\": \"$pid\", \"type\": \"$type\", \"mac\": \"$mac\", \"name\": \"$name\", \"level\": $batt, \"status\": \"$stat\"}"
         fi
     done
-    devData=`echo "$data"|grep -E "statedump: 0x001A Characteristic Value|statedump: 0x001D Characteristic Value"|grep -o "\[[A-z0-9 ]*\]"|sed 's/\[ //g;s/ \]//g'|awk '{if (NR%2==1) {line=$0} else {print line, $0}}'|awk 'length($0) == 23'`
-    times=`echo "$data"|grep -E "statedump: 0x001D Characteristic Value"|awk '{print $1"T"$2}'`
-    if [ `echo "$devData"|wc -l` = `echo "$times"|wc -l` ];then
+    # Pair each 0x001A "info" statedump with the 0x001D "battery" statedump that follows it, and use
+    # the battery line's own timestamp.
+    #
+    # The previous version built two independent lists — every bracket payload paired by line
+    # PARITY, and separately the 0x001D timestamps — then discarded EVERYTHING unless the two line
+    # counts matched exactly. A single unpaired statedump in the window (routine: devices connect
+    # and disconnect at arbitrary times) made the counts differ by one and threw away every result.
+    # Parity pairing was fragile for the same reason — one extra line shifts every later pair, so
+    # rows came out starting with the battery byte instead of ending with it. Between them that is
+    # why third-party mice and keyboards kept vanishing and reappearing.
+    #
+    # Emitted row: "<time> b1 b2 b3 b4 b5 b6 b7 <batt>", i.e. the same 9 fields the loop below
+    # already expects ($4$3 = vendor, $6$5 = product, $NF = battery).
+    pairs=`echo "$data"|awk '
+        /statedump: 0x001A Characteristic Value/ {
+            if (match($0, /\[ [0-9A-Fa-f ]+ \]/)) {
+                v = substr($0, RSTART + 2, RLENGTH - 4)
+                if (split(v, parts, " ") == 7) info = v
+            }
+            next
+        }
+        /statedump: 0x001D Characteristic Value/ {
+            if (info != "" && match($0, /\[ [0-9A-Fa-f]+ \]/)) {
+                print $1 "T" $2, info, substr($0, RSTART + 2, RLENGTH - 4)
+                info = ""
+            }
+        }'`
+    if [ -n "$pairs" ];then
         btData=`/usr/sbin/system_profiler SPBluetoothDataType`
-        for i in `paste -d ' ' <(echo "$times") <(echo "$devData")`
+        for i in $pairs
         do
             if [ `echo $i|wc -w|tr -d " "` = "9" ];then
                 time=`echo $i|awk '{print $1}'`
