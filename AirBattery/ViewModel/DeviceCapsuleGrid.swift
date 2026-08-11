@@ -333,15 +333,28 @@ struct DeviceCapsuleView: View {
     private var isInternalBattery: Bool { device.deviceID == "@MacInternalBattery" }
     private var isStale: Bool { (Date().timeIntervalSince1970 - device.lastUpdate) / 60 > 10 }
     private var subtitleText: String {
-        if isInternalBattery {
-            let label = device.isCharging != 0 ? "Until Full:" : "Until Empty:"
-            return "\(label.local) \(InternalBattery.status.timeLeft)"
-        }
         // `deviceModel` is a raw model identifier for Apple mobile devices ("iPhone17,1"); show the
         // marketing name where we know it. Other producers put a friendly string in there already
         // (AirPods), and those pass through untouched.
         guard let model = device.deviceModel else { return device.deviceType }
         return displayModelName(model)
+    }
+
+    /// Subtitle for this Mac's own battery.
+    ///
+    /// A bolt carries the "charging" meaning that the old "Until Full:" prefix spelled out, so the
+    /// remaining time gets the whole line instead of being squeezed by a label. Discharging needs no
+    /// marker at all — a bare duration in this position reads as time remaining — and at full the
+    /// time is meaningless ("∞"), so it is replaced by the state itself.
+    @ViewBuilder
+    private var internalBatterySubtitle: some View {
+        if device.isCharged {
+            Text("\(Image(systemName: "bolt.fill")) \("Fully Charged".local)")
+        } else if device.isCharging != 0 {
+            Text("\(Image(systemName: "bolt.fill")) \(InternalBattery.status.timeLeft)")
+        } else {
+            Text(InternalBattery.status.timeLeft)
+        }
     }
 
     var body: some View {
@@ -458,7 +471,9 @@ struct DeviceCapsuleView: View {
                 }
                 .dropdownForeground(.primary, opacity: 0.85)
             } else {
-                Text(subtitleText)
+                Group {
+                    if isInternalBattery { internalBatterySubtitle } else { Text(subtitleText) }
+                }
                     .font(.system(size: 10, weight: .regular))
                     .dropdownForeground(.secondary)
                     .lineLimit(1)
