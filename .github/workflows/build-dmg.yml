@@ -1,0 +1,146 @@
+name: Build DMG
+
+# Builds AirBattery.app and packages it as a drag-to-Applications DMG.
+#
+# The DMG is AD-HOC SIGNED, not signed with a Developer ID and not notarized, because CI has no
+# access to the signing certificate. Gatekeeper will refuse to open it on a machine that did not
+# build it — recipients have to right-click > Open, or clear the quarantine attribute:
+#
+#     xattr -dr com.apple.quarantine /Applications/AirBattery.app
+#
+# That is fine for test builds and for people who know to do it. Shipping a DMG the public can
+# open normally additionally needs a Developer ID Application certificate imported into a
+# temporary keychain, plus a notarytool submission — see the notes at the bottom of this file.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # only used to attach the DMG to a tag's release
+
+concurrency:
+  group: build-dmg-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dmg:
+    # AirBattery calls SwiftUI's glassEffect(), which only exists in the macOS 26 SDK, so this
+    # needs an image carrying Xcode 26. If GitHub reports no runner matching this label, the
+    # alternative is a self-hosted macOS 26 runner — an older image cannot compile the project.
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          set -euo pipefail
+          latest=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Using $latest"
+          sudo xcode-select -s "$latest"
+          xcodebuild -version
+          if ! xcodebuild -showsdks | grep -q "macosx26"; then
+            echo "::error::No macOS 26 SDK found. AirBattery uses glassEffect(), which requires Xcode 26."
+            echo "Xcodes present on this image:"
+            ls -d /Applications/Xcode*.app
+            xcodebuild -showsdks
+            exit 1
+          fi
+
+      # Sparkle, MultipeerKit and swift-argument-parser are fetched over the network by xcodebuild.
+      # Keyed on Package.resolved so the cache invalidates when a dependency version moves.
+      - name: Cache SwiftPM checkouts
+        uses: actions/cache@v4
+        with:
+          path: build/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('AirBattery.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build (ad-hoc signed)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project AirBattery.xcodeproj \
+            -scheme AirBattery \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            build
+
+      # The helper and the widget extension are embedded rather than built by the shared scheme
+      # directly, so assert they actually made it into the bundle instead of shipping a DMG whose
+      # login item or widget is silently missing.
+      - name: Verify bundle
+        run: |
+          set -euo pipefail
+          APP=build/Build/Products/Release/AirBattery.app
+          codesign --verify --deep --strict "$APP"
+          lipo -archs "$APP/Contents/MacOS/AirBattery"
+          test -d "$APP/Contents/PlugIns/AirBatteryWidgetExtension.appex"
+          test -d "$APP/Contents/Library/LoginItems/AirBatteryHelper.app"
+          test -x "$APP/Contents/Resources/logReader.sh"
+
+      - name: Package DMG
+        id: dmg
+        run: |
+          set -euo pipefail
+          APP=build/Build/Products/Release/AirBattery.app
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")
+          NAME="AirBattery-${VERSION}.dmg"
+
+          rm -rf dmg-stage
+          mkdir dmg-stage
+          ditto "$APP" "dmg-stage/AirBattery.app"
+          ln -s /Applications dmg-stage/Applications
+
+          hdiutil create \
+            -volname "AirBattery" \
+            -srcfolder dmg-stage \
+            -ov -format UDZO \
+            "$NAME"
+
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AirBattery-${{ steps.dmg.outputs.version }}-dmg
+          path: ${{ steps.dmg.outputs.name }}
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FILE: ${{ steps.dmg.outputs.name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$FILE" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$FILE" --title "$GITHUB_REF_NAME" --generate-notes
+          fi
+
+# ---------------------------------------------------------------------------------------------
+# To produce a DMG that opens without the Gatekeeper warning, add these repository secrets:
+#
+#   MACOS_CERTIFICATE          base64 of a Developer ID Application .p12
+#   MACOS_CERTIFICATE_PWD      its export password
+#   KEYCHAIN_PASSWORD          any throwaway string
+#   NOTARY_APPLE_ID            Apple ID for notarytool
+#   NOTARY_TEAM_ID             7WVM5UGWPF
+#   NOTARY_PASSWORD            app-specific password
+#
+# then, before the build, import the cert into a temporary keychain and swap the ad-hoc settings
+# for CODE_SIGN_IDENTITY="Developer ID Application" with the real DEVELOPMENT_TEAM; after
+# packaging, `xcrun notarytool submit "$NAME" --wait` followed by `xcrun stapler staple "$NAME"`.
+# Sparkle also expects its own EdDSA signature on the update feed, which is a separate key again.
+# ---------------------------------------------------------------------------------------------
