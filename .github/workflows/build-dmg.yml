@@ -126,10 +126,40 @@ jobs:
           FILE: ${{ steps.dmg.outputs.name }}
         run: |
           set -euo pipefail
+
+          # Without this the release is a trap: an ad-hoc signature makes macOS report the app as
+          # "damaged", so anyone who downloads the DMG in a browser hits a dead end with no hint
+          # that one command fixes it. Prepended to the generated changelog, not instead of it.
+          cat > release-notes.md <<NOTES
+          Download \`${FILE}\` below, open it and drag **AirBattery** to Applications.
+
+          ### ⚠️ First launch requires one extra step
+
+          This build is **ad-hoc signed, not notarized** — it is built by GitHub Actions, which has
+          no access to a Developer ID certificate. macOS will refuse to open it with *"AirBattery is
+          damaged and can't be opened"* until you clear the download quarantine flag:
+
+          \`\`\`sh
+          xattr -dr com.apple.quarantine /Applications/AirBattery.app
+          \`\`\`
+
+          Run that once, after copying the app to Applications, and it launches normally from then
+          on. The app itself is unmodified — the warning is about the *signature*, not the contents;
+          \`codesign --verify --deep --strict\` passes on the bundle.
+
+          Universal binary: Apple Silicon and Intel.
+
+          ---
+
+          NOTES
+
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "$FILE" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "$FILE" --title "$GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" "$FILE" \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file release-notes.md \
+              --generate-notes
           fi
 
 # ---------------------------------------------------------------------------------------------
