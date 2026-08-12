@@ -27,9 +27,10 @@ concurrency:
 jobs:
   dmg:
     # AirBattery calls SwiftUI's glassEffect(), which only exists in the macOS 26 SDK, so this
-    # needs an image carrying Xcode 26. If GitHub reports no runner matching this label, the
-    # alternative is a self-hosted macOS 26 runner — an older image cannot compile the project.
-    runs-on: macos-26
+    # needs an image carrying Xcode 26. macos-latest tracks GitHub's newest stable image, which
+    # gets there on its own as the label advances; the SDK check below is what turns a too-old
+    # image into a clear failure instead of a confusing compile error.
+    runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +44,8 @@ jobs:
           xcodebuild -version
           if ! xcodebuild -showsdks | grep -q "macosx26"; then
             echo "::error::No macOS 26 SDK found. AirBattery uses glassEffect(), which requires Xcode 26."
+            echo "This means macos-latest still points at an image older than macOS 26."
+            echo "Pin runs-on to a macos-26 image, or use a self-hosted macOS 26 runner."
             echo "Xcodes present on this image:"
             ls -d /Applications/Xcode*.app
             xcodebuild -showsdks
