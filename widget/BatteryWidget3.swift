@@ -46,14 +46,14 @@ struct SmallWidgetView2: View {
                         ForEach(0..<2) { index in
                             Circle()
                                 .stroke(lineWidth: lineWidth)
-                                .opacity(0.15)
+                                .opacity(trackOpacity)
                         }
                     }
                     HStack(spacing: 17) {
                         ForEach(0..<2) { index in
                             Circle()
                                 .stroke(lineWidth: lineWidth)
-                                .opacity(0.15)
+                                .opacity(trackOpacity)
                         }
                     }
                 }
@@ -65,7 +65,7 @@ struct SmallWidgetView2: View {
                                 Group {
                                     Circle()
                                         .stroke(lineWidth: lineWidth)
-                                        .opacity(0.15)
+                                        .opacity(trackOpacity)
                                     Circle()
                                         .trim(from: 0.0, to: CGFloat(min(Double(item.batteryLevel)/100.0, 0.5)))
                                         .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
@@ -114,7 +114,7 @@ struct SmallWidgetView2: View {
                                 Group {
                                     Circle()
                                         .stroke(lineWidth: lineWidth)
-                                        .opacity(0.15)
+                                        .opacity(trackOpacity)
                                     Circle()
                                         .trim(from: 0.0, to: CGFloat(min(Double(item.batteryLevel)/100.0, 0.5)))
                                         .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
@@ -189,7 +189,7 @@ struct doubleBatteryWidgetEntryView2: View {
                                 .frame(width: 58, alignment: .center)
                         }
                     }
-                }.opacity(0.15)
+                }.opacity(trackOpacity)
             } else {
                 VStack(spacing: 17){
                     HStack(spacing: 23) {
@@ -199,7 +199,7 @@ struct doubleBatteryWidgetEntryView2: View {
                                     Group {
                                         Circle()
                                             .stroke(lineWidth: lineWidth)
-                                            .opacity(0.15)
+                                            .opacity(trackOpacity)
                                         Circle()
                                             .trim(from: 0.0, to: CGFloat(min(Double(item.batteryLevel)/100.0, 0.5)))
                                             .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
@@ -249,7 +249,7 @@ struct doubleBatteryWidgetEntryView2: View {
                                     Group {
                                         Circle()
                                             .stroke(lineWidth: lineWidth)
-                                            .opacity(0.15)
+                                            .opacity(trackOpacity)
                                         Circle()
                                             .trim(from: 0.0, to: CGFloat(min(Double(item.batteryLevel)/100.0, 0.5)))
                                             .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
