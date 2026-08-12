@@ -378,6 +378,8 @@ func getPowerState() -> iBattery {
             var ib = iBattery(hasBattery: true, isCharging: internalBattery.isCharging ?? false, isCharged :internalBattery.isCharged ?? false, acPowered: internalBattery.acPowered ?? false, timeLeft: internalBattery.timeLeft, batteryLevel: Int(level))
             if #available(macOS 12.0, *) { ib.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled }
             if let health = internalBattery.health { ib.health = Int(health.rounded()) }
+            ib.powerWatts = internalBattery.watts
+            if ib.acPowered { ib.adapterWatts = getAdapterWatts() }
             return ib
         }
     }

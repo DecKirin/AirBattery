@@ -300,9 +300,16 @@ struct BatteryHealthRing: View {
                     .trim(from: 0, to: CGFloat(max(0, min(100, health))) / 100)
                     .stroke(Color(getHealthColor(health)), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
+                // Unit watermark on the same terms as `PowerWattageRing`'s ringed state, so the two
+                // adjacent dials read as one pair rather than two unrelated gauges.
+                Text("%")
+                    .font(.system(size: 20, weight: .bold))
+                    .dropdownForeground(.primary, opacity: 0.09)
                 Text("\(health)")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .monospacedDigitIfAvailable()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                     .dropdownForeground(.primary)
             }
             .padding(6)
@@ -311,6 +318,72 @@ struct BatteryHealthRing: View {
         }
         .buttonStyle(.plain)
         .help("\("Battery Health".local): \(health)%")
+    }
+}
+
+/// Ceiling the charge ring scales against: 140W, the largest adapter Apple ships (16" MacBook Pro
+/// MagSafe). A 65W contract therefore fills just under half the ring.
+let maxAdapterWatts: Double = 140
+
+/// Power gauge for the Mac's own battery, sharing `BatteryHealthRing`'s trim-circle construction.
+///
+/// Two distinct readings share one dial, because only one of them is meaningful at a time:
+/// plugged in it shows the *adapter's negotiated wattage* against the 140W ceiling, and on battery
+/// it shows what the machine is *drawing*. Discharge has no comparable ceiling to scale against, so
+/// it draws no arc at all — an empty track next to a live number would read as "0%".
+struct PowerWattageRing: View {
+    /// Wattage to print in the middle.
+    var watts: Double
+    /// Ring fill fraction, or nil to omit the ring entirely.
+    var progress: Double?
+    var help: String
+    var action: () -> Void
+
+    /// Whole watts while plugged in (adapters are rated in whole numbers anyway); one decimal on
+    /// battery, where the draw is small enough that rounding to 6 vs 7 loses real signal — but only
+    /// below 10, so the text never outgrows the circle. The unit is carried by the watermark behind
+    /// the number rather than by a suffix here.
+    private var label: String {
+        if progress != nil || watts >= 10 { return "\(Int(watts.rounded()))" }
+        return String(format: "%.1f", watts)
+    }
+
+    /// Discharge draws no arc, so the whole inner circle is free and both the digits and the
+    /// watermark behind them can run bigger; the charging ring needs that outer band left clear.
+    private var labelSize: CGFloat { progress == nil ? 15 : 13 }
+    private var watermarkSize: CGFloat { progress == nil ? 21 : 18 }
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                if let progress {
+                    Circle()
+                        .stroke(.primary.opacity(0.18), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                    Circle()
+                        .trim(from: 0, to: CGFloat(max(0, min(1, progress))))
+                        .stroke(Color("my_green"), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                // Unit as a washed-out watermark rather than a suffix: it frees the whole width for
+                // the digits (so "140" stays full size) while keeping the reading unambiguous.
+                // Kept faint enough to read as a tint in the glass rather than as a second glyph
+                // competing with the number sitting on top of it.
+                Text("W")
+                    .font(.system(size: watermarkSize, weight: .bold))
+                    .dropdownForeground(.primary, opacity: 0.09)
+                Text(label)
+                    .font(.system(size: labelSize, weight: .semibold))
+                    .monospacedDigitIfAvailable()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .dropdownForeground(.primary)
+            }
+            .padding(6)
+            .frame(width: dropdownToolbarButtonSize, height: dropdownToolbarButtonSize)
+            .toolbarGlassBackground()
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 
