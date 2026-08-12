@@ -10,7 +10,11 @@ name: Build DMG
 #
 # That is fine for test builds and for people who know to do it. Shipping a DMG the public can
 # open normally additionally needs a Developer ID Application certificate imported into a
-# temporary keychain, plus a notarytool submission — see the notes at the bottom of this file.
+# temporary keychain, plus a notarytool submission — see "SHIPPING A SIGNED, NOTARIZED DMG" at
+# the bottom of this file.
+#
+# Ad-hoc builds here also pass ENABLE_HARDENED_RUNTIME=NO. That is a TEMPORARY workaround, not a
+# preference; it is undone by the Developer ID path below. See the comment on the build step.
 
 on:
   workflow_dispatch:
@@ -61,6 +65,22 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('AirBattery.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
+      # TEMPORARY: ENABLE_HARDENED_RUNTIME=NO overrides the project's ENABLE_HARDENED_RUNTIME=YES
+      # for ad-hoc CI builds only. Without it the produced app dies in dyld before main() runs:
+      #
+      #   Library not loaded: @rpath/Sparkle.framework/Versions/B/Sparkle
+      #   Reason: ... not valid for use in process: mapping process and mapped file
+      #           (non-platform) have different Team IDs
+      #
+      # Hardened runtime turns on Library Validation, which requires an embedded framework to
+      # carry the same Team ID as the host process. Ad-hoc signatures carry NO Team ID at all, on
+      # either side, so the match can never succeed and dyld refuses to map Sparkle.framework.
+      # Confirmed by isolation: the same bundle re-signed ad-hoc launches fine without `-o
+      # runtime` and fails with it, changing nothing else.
+      #
+      # Dropping hardened runtime costs nothing here because it is only *required* for
+      # notarization, which this ad-hoc path does not do. Remove this line the moment the build
+      # signs with a real Developer ID — hardened runtime must be ON for anything published.
       - name: Build (ad-hoc signed)
         run: |
           set -euo pipefail
@@ -75,6 +95,7 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
+            ENABLE_HARDENED_RUNTIME=NO \
             build
 
       # The helper and the widget extension are embedded rather than built by the shared scheme
@@ -89,6 +110,42 @@ jobs:
           test -d "$APP/Contents/PlugIns/AirBatteryWidgetExtension.appex"
           test -d "$APP/Contents/Library/LoginItems/AirBatteryHelper.app"
           test -x "$APP/Contents/Resources/logReader.sh"
+
+      # `codesign --verify` above passes on a bundle that cannot actually launch: it checks that
+      # signatures are well-formed, while Library Validation is a load-time policy dyld applies
+      # only when the process starts. A hardened-runtime + ad-hoc DMG shipped green through this
+      # workflow once already for exactly that reason. So: start the app and confirm dyld got
+      # through its embedded frameworks.
+      #
+      # This fails hard ONLY on a dynamic-linking failure. A menu bar app on a headless runner can
+      # exit early for unrelated reasons (no WindowServer session, permissions), which warns
+      # instead of failing so this does not become a flaky gate.
+      - name: Smoke test launch
+        run: |
+          set -euo pipefail
+          APP=build/Build/Products/Release/AirBattery.app
+          LOG=$(mktemp)
+
+          "$APP/Contents/MacOS/AirBattery" >"$LOG" 2>&1 &
+          PID=$!
+          sleep 10
+
+          if kill -0 "$PID" 2>/dev/null; then
+            kill "$PID" 2>/dev/null || true
+            echo "App stayed up for 10s — embedded frameworks loaded."
+            exit 0
+          fi
+
+          wait "$PID" || true
+          if grep -q "Library not loaded\|different Team IDs\|code signature.*not valid" "$LOG"; then
+            echo "::error::App died at launch: dyld refused an embedded framework."
+            echo "::error::Usually hardened runtime + ad-hoc signing (Library Validation needs matching Team IDs)."
+            cat "$LOG"
+            exit 1
+          fi
+
+          echo "::warning::App exited early, but not from a dynamic-linking failure. Output below."
+          cat "$LOG"
 
       - name: Package DMG
         id: dmg
@@ -162,18 +219,108 @@ jobs:
               --generate-notes
           fi
 
-# ---------------------------------------------------------------------------------------------
-# To produce a DMG that opens without the Gatekeeper warning, add these repository secrets:
+# =============================================================================================
+# SHIPPING A SIGNED, NOTARIZED DMG — for maintainers who have a valid Developer ID
+# =============================================================================================
 #
-#   MACOS_CERTIFICATE          base64 of a Developer ID Application .p12
-#   MACOS_CERTIFICATE_PWD      its export password
-#   KEYCHAIN_PASSWORD          any throwaway string
-#   NOTARY_APPLE_ID            Apple ID for notarytool
-#   NOTARY_TEAM_ID             7WVM5UGWPF
-#   NOTARY_PASSWORD            app-specific password
+# The ad-hoc path above produces a DMG that only opens after the user clears quarantine by hand.
+# If you hold a Developer ID Application certificate, do the following instead. Signing with a
+# real team also removes the reason ENABLE_HARDENED_RUNTIME=NO exists, so that line comes out.
 #
-# then, before the build, import the cert into a temporary keychain and swap the ad-hoc settings
-# for CODE_SIGN_IDENTITY="Developer ID Application" with the real DEVELOPMENT_TEAM; after
-# packaging, `xcrun notarytool submit "$NAME" --wait` followed by `xcrun stapler staple "$NAME"`.
-# Sparkle also expects its own EdDSA signature on the update feed, which is a separate key again.
-# ---------------------------------------------------------------------------------------------
+# ---- 1. Add repository secrets (Settings > Secrets and variables > Actions) ------------------
+#
+#   MACOS_CERTIFICATE       base64 of your "Developer ID Application" .p12
+#                           export from Keychain Access, then: base64 -i cert.p12 | pbcopy
+#   MACOS_CERTIFICATE_PWD   the password you set when exporting that .p12
+#   KEYCHAIN_PASSWORD       any throwaway string; it only unlocks the temporary CI keychain
+#   NOTARY_APPLE_ID         Apple ID belonging to the same team as the certificate
+#   NOTARY_TEAM_ID          your 10-character Team ID (the original project's was 7WVM5UGWPF —
+#                           use YOUR OWN; it must match the certificate, or notarization fails)
+#   NOTARY_PASSWORD         an app-specific password from appleid.apple.com, NOT the account
+#                           password. Alternatively store an App Store Connect API key and use
+#                           notarytool's --key/--key-id/--issuer instead of these three.
+#
+# ---- 2. Import the certificate before the build step ----------------------------------------
+#
+#   - name: Import Developer ID certificate
+#     env:
+#       MACOS_CERTIFICATE:     ${{ secrets.MACOS_CERTIFICATE }}
+#       MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+#       KEYCHAIN_PASSWORD:     ${{ secrets.KEYCHAIN_PASSWORD }}
+#     run: |
+#       set -euo pipefail
+#       echo "$MACOS_CERTIFICATE" | base64 --decode > /tmp/cert.p12
+#       security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+#       security default-keychain -s build.keychain
+#       security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+#       security set-keychain-settings -lut 21600 build.keychain   # don't relock mid-build
+#       security import /tmp/cert.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" \
+#         -T /usr/bin/codesign -T /usr/bin/security
+#       # Required, or codesign blocks on a UI password prompt that no one can answer:
+#       security set-key-partition-list -S apple-tool:,apple:,codesign: \
+#         -s -k "$KEYCHAIN_PASSWORD" build.keychain
+#       rm -f /tmp/cert.p12
+#       security find-identity -v -p codesigning build.keychain
+#
+# ---- 3. Replace the ad-hoc build settings ----------------------------------------------------
+#
+#   Drop these five lines:      CODE_SIGN_IDENTITY="-"
+#                               CODE_SIGNING_REQUIRED=NO
+#                               DEVELOPMENT_TEAM=""
+#                               PROVISIONING_PROFILE_SPECIFIER=""
+#                               ENABLE_HARDENED_RUNTIME=NO
+#
+#   Use instead:                CODE_SIGN_IDENTITY="Developer ID Application"
+#                               CODE_SIGNING_REQUIRED=YES
+#                               CODE_SIGNING_ALLOWED=YES
+#                               CODE_SIGN_STYLE=Manual
+#                               DEVELOPMENT_TEAM="<your Team ID>"
+#
+#   Do NOT re-add ENABLE_HARDENED_RUNTIME=NO. Notarization REJECTS submissions without hardened
+#   runtime, and once app and Sparkle.framework share one real Team ID, Library Validation is
+#   satisfied and the crash this flag works around cannot occur.
+#
+#   Xcode signs embedded content (Sparkle.framework, AirBatteryWidgetExtension.appex,
+#   AirBatteryHelper.app) inside-out as part of the build. If you ever re-sign by hand, sign in
+#   that same order — frameworks, then appex and login item, then the outer .app — because
+#   signing the outer bundle seals the hashes of everything nested inside it.
+#
+# ---- 4. Notarize and staple, after the "Package DMG" step ------------------------------------
+#
+#   - name: Notarize and staple
+#     env:
+#       NOTARY_APPLE_ID:  ${{ secrets.NOTARY_APPLE_ID }}
+#       NOTARY_TEAM_ID:   ${{ secrets.NOTARY_TEAM_ID }}
+#       NOTARY_PASSWORD:  ${{ secrets.NOTARY_PASSWORD }}
+#       FILE:             ${{ steps.dmg.outputs.name }}
+#     run: |
+#       set -euo pipefail
+#       xcrun notarytool submit "$FILE" \
+#         --apple-id "$NOTARY_APPLE_ID" \
+#         --team-id "$NOTARY_TEAM_ID" \
+#         --password "$NOTARY_PASSWORD" \
+#         --wait
+#       xcrun stapler staple "$FILE"          # staples the ticket so first launch works offline
+#       spctl -a -t open --context context:primary-signature -vvv "$FILE"
+#
+#   On rejection, get the reasons — the summary alone rarely says enough:
+#       xcrun notarytool log <submission-id> --apple-id ... --team-id ... --password ...
+#
+# ---- 5. Sparkle's update feed is a SEPARATE key ----------------------------------------------
+#
+#   Code signing does not sign updates. Sparkle verifies each appcast item with an EdDSA
+#   signature made by the key in Sparkle's `generate_keys` tool, held by whoever publishes
+#   releases. Signing and notarizing the DMG does NOT make appcast.xml valid — run Sparkle's
+#   `sign_update <file>` and paste the resulting `sparkle:edSignature` into the appcast entry.
+#   Keep that private key OUT of the repo and out of CI unless you deliberately add it as a
+#   secret; losing it means existing installs can never auto-update again.
+#
+# ---- 6. Verifying the result -----------------------------------------------------------------
+#
+#   The "Smoke test launch" step catches launch-time linking failures, but check the Gatekeeper
+#   story too, on a machine that did NOT build the app:
+#       spctl -a -t exec -vvv /Applications/AirBattery.app     # expect: accepted, Notarized...
+#       codesign -dvvv /Applications/AirBattery.app 2>&1 | grep TeamIdentifier   # expect your ID
+#   Confirm the same TeamIdentifier on Contents/Frameworks/Sparkle.framework. Two different
+#   values there is the exact condition that produced the ad-hoc launch crash.
+# =============================================================================================
