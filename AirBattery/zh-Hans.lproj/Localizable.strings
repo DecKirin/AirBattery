@@ -157,3 +157,5 @@
 "After installation, you can run \"airbattery\" in yor terminal to list all devices." = "安装此工具后, 在命令行中执行\"airbattery\"即可列出所有设备.";
 
 "Battery Health" = "电池健康度";
+"Charging Power" = "充电功率";
+"Power Usage" = "耗电功率";

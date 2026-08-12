@@ -17,6 +17,14 @@ struct iBattery {
     var batteryLevel: Int
     var lowPower: Bool = false
     var health: Int? = nil
+    /// Wattage of the negotiated USB-PD / MagSafe contract, as reported by the adapter itself.
+    /// This is the charging protocol's rating (a 65W brick reports 65), not the power actually
+    /// flowing into the cell right now. nil whenever nothing is plugged in.
+    var adapterWatts: Int? = nil
+    /// Magnitude of power crossing the battery terminals, in watts. While running on battery this
+    /// is what the machine is consuming; it is always positive (`InternalFinder` folds the sign of
+    /// `Amperage` into a direction factor).
+    var powerWatts: Double? = nil
 }
 
 class InternalBattery {
@@ -86,6 +94,17 @@ class InternalBattery {
             return nil
         }
     }
+}
+
+/// Rated wattage of the attached power adapter, i.e. the USB-PD / MagSafe contract that was
+/// negotiated — a 65W brick reports 65 even while the battery is only sipping a few watts near
+/// full. Returns nil when running on battery, and on Macs whose adapter reports no wattage.
+func getAdapterWatts() -> Int? {
+    guard let details = IOPSCopyExternalPowerAdapterDetails()?.takeRetainedValue() as? [String: Any],
+          let watts = details[kIOPSPowerAdapterWattsKey] as? Int,
+          watts > 0
+    else { return nil }
+    return watts
 }
 
 class InternalFinder {

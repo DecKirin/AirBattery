@@ -363,6 +363,7 @@ struct popover: View {
                 deviceDropdownWindow.dismiss()
                 openSettingPanel()
             }
+            powerRing
             if let health = InternalBattery.status.health {
                 BatteryHealthRing(health: health) {
                     deviceDropdownWindow.dismiss()
@@ -379,6 +380,34 @@ struct popover: View {
             Spacer()
         }
         .frame(height: dropdownToolbarHeight)
+    }
+
+    /// Power dial for this Mac's own battery.
+    ///
+    /// Keyed on `acPowered` rather than `isCharging` so a plugged-in machine that has finished
+    /// charging still reports its adapter contract — the protocol is live whether or not current is
+    /// flowing. Absent entirely on desktop Macs and whenever IOKit gives us no reading, matching how
+    /// the health ring stays out of the toolbar when there is no battery to describe.
+    @ViewBuilder
+    private var powerRing: some View {
+        let ib = InternalBattery.status
+        if ib.hasBattery {
+            if ib.acPowered, let adapter = ib.adapterWatts {
+                PowerWattageRing(watts: Double(adapter),
+                                 progress: Double(adapter) / maxAdapterWatts,
+                                 help: "\("Charging Power".local): \(adapter)W") {
+                    deviceDropdownWindow.dismiss()
+                    openSettingPanel()
+                }
+            } else if !ib.acPowered, let draw = ib.powerWatts, draw > 0 {
+                PowerWattageRing(watts: draw,
+                                 progress: nil,
+                                 help: String(format: "%@: %.1fW", "Power Usage".local, draw)) {
+                    deviceDropdownWindow.dismiss()
+                    openSettingPanel()
+                }
+            }
+        }
     }
 
     private var emptyState: some View {
