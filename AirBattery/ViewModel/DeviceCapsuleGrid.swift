@@ -67,17 +67,18 @@ enum DropdownTheme: String, CaseIterable, Identifiable {
 
 // MARK: - Pinned-theme plumbing
 //
-// `NSAppearance` alone is not enough to pin the panel. Liquid Glass samples the desktop behind it
-// and `.primary`/`.secondary` are *vibrancy* styles, so a moment after the window appears they
-// re-resolve against that backdrop — the panel would flash the chosen theme and then drift back to
-// tracking the wallpaper. Pinned modes fix the content inks with concrete colours (vibrancy leaves
-// those alone) and tint the glass to bias its base tone.
+// `NSAppearance` alone is not enough to pin the panel. Liquid Glass samples the desktop behind the
+// (fully transparent) window and `.primary`/`.secondary` are *vibrancy* styles, so a moment after
+// the window appears they re-resolve against that backdrop — the panel would flash the chosen theme
+// and then drift back to tracking the wallpaper.
 //
-// A pinned mode is therefore a *partial* pin, by choice. Fully fixing the tone means occluding the
-// backdrop, and occluding the backdrop is precisely what flattens the capsule — an opaque base
-// layer was tried and it read as a flat plate while still greying out over a dark wallpaper. Since
-// the two goals are in direct tension, this keeps the glass intact and accepts that pinned modes
-// still shift somewhat with the desktop. Adaptive remains the default and is unaffected.
+// A pinned mode therefore cuts both paths to the backdrop. Content inks become concrete colours
+// (vibrancy leaves those alone), including `Shape.stroke` styles, which do not inherit
+// `foregroundStyle` and so need `dropdownStroke`. And the chrome swaps `glassEffect` — whose
+// backdrop is the window's and cannot be redirected — for a hand-built glassmorphic pane. See
+// `GlassmorphicPane`.
+//
+// Adaptive keeps both mechanisms and is unaffected.
 
 private struct DropdownPinnedSchemeKey: EnvironmentKey {
     static let defaultValue: ColorScheme? = nil
@@ -141,6 +142,16 @@ extension View {
     }
 }
 
+/// Vibrancy-safe stroke style, on the same terms as `dropdownForeground`.
+///
+/// That modifier only covers `foregroundStyle`, but a `Shape.stroke` takes its own `ShapeStyle` and
+/// does not inherit it — so the toolbar dials' `.primary` tracks kept re-resolving against the
+/// backdrop after everything else had been pinned.
+func dropdownStroke(_ pinned: ColorScheme?, opacity: Double) -> AnyShapeStyle {
+    guard let pinned else { return AnyShapeStyle(HierarchicalShapeStyle.primary.opacity(opacity)) }
+    return AnyShapeStyle(((pinned == .dark) ? Color.white : Color.black).opacity(opacity))
+}
+
 // MARK: - Layout constants (shared with AirBatteryApp.swift's window sizing)
 
 let dropdownPanelWidth: CGFloat = 380
@@ -174,21 +185,80 @@ func estimatedDropdownHeight(deviceCount: Int) -> CGFloat {
 // to the system-appearance colour and went unreadable on dark wallpapers.
 //
 // In a PINNED mode that same vibrancy is the bug rather than the feature — it is what dragged the
-// panel back to the wallpaper a second after it opened. Pinned modes keep the glass (its texture is
-// the look) and instead use concrete colours via `dropdownForeground`, plus a tint that pins the
-// glass's base tone. See the pinned-theme plumbing above.
-/// Tint that pins the glass's base tone without giving up the glass.
+// panel back to the wallpaper a second after it opened. Pinned modes therefore give up `glassEffect`
+// entirely and render as glassmorphism instead. See `GlassmorphicPane`.
+
+/// The glassmorphism recipe used by the pinned themes: a blurred pane, a translucent wash that fixes
+/// the tone, a highlight gathering along the top-left edge, and a shadow lifting it off the desktop.
 ///
-/// Dropping to `.regularMaterial` for pinned themes did hold the theme, but it also threw away the
-/// Liquid Glass texture — the refraction and specular edge are the whole look. Keeping
-/// `glassEffect` and tinting it instead retains that texture while stopping the base tone from
-/// reading as whatever happens to be behind the window. The content inks are pinned separately by
-/// `dropdownForeground`, which is what actually stopped the drift.
-private func pinnedGlassTint(_ scheme: ColorScheme?) -> Color? {
-    switch scheme {
-    case .dark: Color.black.opacity(0.42)
-    case .light: Color.white.opacity(0.42)
-    default: nil
+/// Pinned themes cannot use `glassEffect`. Its backdrop is the *window's* backdrop, and nothing drawn
+/// inside the window can occlude that — a fill was tried on both sides of the glass and neither
+/// worked. In front of it, the fill veiled the glass into a flat plate while the glass underneath
+/// went on sampling. Behind it, the fill only ever lands beneath the glass's own render, so the panel
+/// lost its translucency *and* the glass on top still tracked whatever sat behind the window — other
+/// apps' windows as much as the wallpaper. Apple exposes no way to redirect that backdrop, so
+/// holding a theme means building the pane by hand.
+///
+/// Glassmorphism is the right idiom for that, and it pins better than a thicker material would. A
+/// material still *averages* whatever is behind it, so buying tone from thickness alone costs
+/// transparency fast; the `wash` is a fixed colour, so it holds the tone at far lower opacity. That
+/// is what lets the blur underneath drop to `.thinMaterial` and keeps the pane see-through.
+private struct GlassmorphicPane<S: InsettableShape>: View {
+    var shape: S
+    var scheme: ColorScheme
+    /// Overrides the neutral wash — the capsule's juice passes its battery-tier colour here.
+    var wash: Color?
+    /// Off for panes nested inside another one, where a shadow would read as a seam rather than lift.
+    var elevated: Bool = true
+
+    init(shape: S, scheme: ColorScheme, wash: Color? = nil, elevated: Bool = true) {
+        self.shape = shape
+        self.scheme = scheme
+        self.wash = wash
+        self.elevated = elevated
+    }
+
+    private var isDark: Bool { scheme == .dark }
+
+    /// The layer that actually holds the theme. Everything else here is texture.
+    private var washColor: Color {
+        wash ?? (isDark ? Color.black.opacity(0.34) : Color.white.opacity(0.42))
+    }
+
+    /// Light caught along the top-left edge and falling away — the frosted-pane border.
+    private var border: LinearGradient {
+        LinearGradient(
+            colors: isDark
+                ? [.white.opacity(0.34), .white.opacity(0.10), .white.opacity(0.04)]
+                : [.white.opacity(0.90), .white.opacity(0.45), .white.opacity(0.18)],
+            startPoint: .topLeading, endPoint: .bottomTrailing
+        )
+    }
+
+    /// Sheen falling off the top edge, standing in for the way glass gathers light there.
+    ///
+    /// Note if the tier palette is ever swapped for deeper colours: this is white, so it bleaches the
+    /// wash toward the backdrop, and the deeper the colour the more is lost. At 0.30 over a 0.55 wash
+    /// only 38% of a tier colour reaches the screen — enough for the bright palette this is tuned
+    /// against, but it turned a trial `rgb(20, 110, 80)` into `rgb(158, 193, 181)`.
+    private var sheen: LinearGradient {
+        LinearGradient(
+            colors: [.white.opacity(isDark ? 0.10 : 0.30), .clear],
+            startPoint: .top, endPoint: .center
+        )
+    }
+
+    var body: some View {
+        shape
+            .fill(.thinMaterial)
+            .overlay(shape.fill(washColor))
+            .overlay(shape.fill(sheen))
+            .overlay(shape.strokeBorder(border, lineWidth: 1))
+            // The window sets `hasShadow = false` so AppKit cannot draw one rectangle around the
+            // whole panel, which leaves each pane free to cast its own — the elevation that
+            // separates glassmorphism from a flat translucent card.
+            .shadow(color: .black.opacity(isDark ? 0.38 : 0.18),
+                    radius: elevated ? 9 : 0, x: 0, y: elevated ? 4 : 0)
     }
 }
 
@@ -198,12 +268,13 @@ private struct ChromeGlass<S: InsettableShape>: ViewModifier {
     @Environment(\.dropdownPinnedScheme) private var pinned
 
     func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            if let tint = pinnedGlassTint(pinned) {
-                content.glassEffect(.regular.tint(tint), in: shape)
-            } else {
-                content.glassEffect(.regular, in: shape)
-            }
+        if let pinned {
+            // A detached background is right *here* and wrong in adaptive mode: pinned content
+            // already carries concrete inks, and keeping it outside the material is what stops
+            // vibrancy from re-resolving those inks against the backdrop.
+            content.background(GlassmorphicPane(shape: shape, scheme: pinned))
+        } else if #available(macOS 26, *) {
+            content.glassEffect(.regular, in: shape)
         } else {
             content.background(.regularMaterial, in: shape)
         }
@@ -214,12 +285,10 @@ private struct ToolbarGlass: ViewModifier {
     @Environment(\.dropdownPinnedScheme) private var pinned
 
     func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            if let tint = pinnedGlassTint(pinned) {
-                content.glassEffect(.regular.tint(tint).interactive(), in: Circle())
-            } else {
-                content.glassEffect(.regular.interactive(), in: Circle())
-            }
+        if let pinned {
+            content.background(GlassmorphicPane(shape: Circle(), scheme: pinned))
+        } else if #available(macOS 26, *) {
+            content.glassEffect(.regular.interactive(), in: Circle())
         } else {
             content.background(.regularMaterial, in: Circle())
         }
@@ -237,24 +306,35 @@ extension View {
         chromeGlassBackground(in: Capsule(style: .continuous))
     }
 
-    /// Round glass for the toolbar buttons. `.interactive()` gives the native Liquid Glass
-    /// hover/press response, so no manual opacity swapping is needed.
+    /// Round glass for the toolbar buttons. In adaptive mode `.interactive()` gives the native
+    /// Liquid Glass hover/press response, so no manual opacity swapping is needed; a pinned theme
+    /// has no `glassEffect` to ask for it and the buttons stay static.
     func toolbarGlassBackground() -> some View {
         modifier(ToolbarGlass())
     }
 }
 
 /// Tinted Liquid Glass in a battery-tier color — the capsule "juice".
-/// The tint carries the colour; no opaque fill underneath, so the glass stays translucent and the
-/// panel keeps showing through it. This one is already tinted by the battery tier, so it never
-/// needed a pinned variant — it keeps its glass in every theme.
+///
+/// ADAPTIVE keeps `glassEffect`: the tint carries the colour with no fill underneath, so the glass
+/// stays translucent and the panel keeps showing through it.
+///
+/// PINNED gives it up for the same reason `GlassmorphicPane` does — the juice sits *inside* the
+/// capsule track, so leaving it on `glassEffect` would hold the track's theme while the juice went on
+/// sampling whatever was behind the window, straight through it. It becomes another glassmorphic
+/// pane, with the tier colour as its wash instead of the neutral one, so the hue stays put while the
+/// blur underneath keeps it translucent. No shadow: nested inside the track, one would read as a
+/// seam rather than as lift.
 struct TieredGlass<S: InsettableShape>: View {
     var shape: S
     var color: Color
     var fallbackOpacity: Double = 0.55
+    @Environment(\.dropdownPinnedScheme) private var pinned
 
     var body: some View {
-        if #available(macOS 26, *) {
+        if let pinned {
+            GlassmorphicPane(shape: shape, scheme: pinned, wash: color.opacity(0.55), elevated: false)
+        } else if #available(macOS 26, *) {
             Color.clear.glassEffect(.regular.tint(color.opacity(0.55)), in: shape)
         } else {
             shape.fill(color.opacity(fallbackOpacity))
@@ -290,12 +370,13 @@ struct CircleGlassButton: View {
 struct BatteryHealthRing: View {
     var health: Int
     var action: () -> Void
+    @Environment(\.dropdownPinnedScheme) private var pinned
 
     var body: some View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .stroke(.primary.opacity(0.18), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                    .stroke(dropdownStroke(pinned, opacity: 0.18), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
                 Circle()
                     .trim(from: 0, to: CGFloat(max(0, min(100, health))) / 100)
                     .stroke(Color(getHealthColor(health)), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
@@ -338,6 +419,7 @@ struct PowerWattageRing: View {
     var progress: Double?
     var help: String
     var action: () -> Void
+    @Environment(\.dropdownPinnedScheme) private var pinned
 
     /// Whole watts while plugged in (adapters are rated in whole numbers anyway); one decimal on
     /// battery, where the draw is small enough that rounding to 6 vs 7 loses real signal — but only
@@ -358,7 +440,7 @@ struct PowerWattageRing: View {
             ZStack {
                 if let progress {
                     Circle()
-                        .stroke(.primary.opacity(0.18), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                        .stroke(dropdownStroke(pinned, opacity: 0.18), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
                     Circle()
                         .trim(from: 0, to: CGFloat(max(0, min(1, progress))))
                         .stroke(Color("my_green"), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
