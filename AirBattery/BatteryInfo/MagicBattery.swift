@@ -7,6 +7,7 @@
 import SwiftUI
 import Foundation
 import IOBluetooth
+import IOKit.ps
 
 class SPBluetoothDataModel {
     static var shared: SPBluetoothDataModel = SPBluetoothDataModel()
@@ -72,6 +73,27 @@ class SPBluetoothDataModel {
     }
 }
 
+/// Signature of `IOPSCopyPowerSourcesByType`, the call behind `pmset -g accps`. It returns the
+/// power-source blob for one class of sources, to be walked with the public `IOPSCopyPowerSourcesList`
+/// / `IOPSGetPowerSourceDescription` pair.
+private typealias IOPSCopyPowerSourcesByTypeFn = @convention(c) (Int32) -> Unmanaged<CFTypeRef>?
+
+/// `IOPSCopyPowerSourcesByType` is exported by IOKit but is not declared in the public SDK headers,
+/// so bind it at runtime. Resolved via `dlsym` rather than `@_silgen_name` deliberately: a missing
+/// symbol then degrades to "no accessory batteries" instead of stopping the app from launching at all.
+private let ioPSCopyPowerSourcesByType: IOPSCopyPowerSourcesByTypeFn? = {
+    guard let handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_LAZY),
+          let symbol = dlsym(handle, "IOPSCopyPowerSourcesByType")
+    else {
+        print("⚠️ IOPSCopyPowerSourcesByType unavailable, accessory batteries will not be read")
+        return nil
+    }
+    return unsafeBitCast(symbol, to: IOPSCopyPowerSourcesByTypeFn.self)
+}()
+
+/// `kIOPSSourceForAccessories`, from IOKit's private `IOPowerSourcesPrivate.h`.
+private let kIOPSSourceForAccessories: Int32 = 4
+
 class MagicBattery {
     static var shared: MagicBattery = MagicBattery()
     
@@ -97,6 +119,10 @@ class MagicBattery {
                 self.getOldMagicKeyboard()
                 self.getOldMagicTrackpad()
                 self.getOldMagicMouse()
+                // Last on purpose: this is the freshest reading for anything macOS itself tracks,
+                // and running after the scans above lets it keep the more specific device types
+                // they set rather than overwrite them.
+                self.getAccessoryBattery()
             }
         //}
     }
@@ -323,6 +349,91 @@ class MagicBattery {
         }
     }
     
+    /// `Accessory Category` values worth adopting, mapped to the device types `getDeviceIcon`
+    /// draws. Deliberately limited to input devices: audio accessories already arrive through the
+    /// BLE-advertisement, `system_profiler` and IOBluetooth paths, each with its own naming scheme,
+    /// so adopting them here would duplicate rows rather than refresh them.
+    private static let accessoryCategoryTypes = [
+        "Keyboard": "Keyboard",
+        "Mouse": "Mouse",
+        "Trackpad": "Trackpad",
+        "Gamepad": "Gamepad",
+        "Game Controller": "Gamepad"
+    ]
+
+    /// MAC address of a *connected* device by name, from the cached `system_profiler` JSON.
+    ///
+    /// Deliberately restricted to `device_connected`: an unpaired-but-remembered clone of a
+    /// keyboard is a routine sight in that list (the same board paired over a second BT channel),
+    /// and matching one would hand back the wrong address.
+    func getDeviceAddress(ofName name: String, _ def: String) -> String {
+        if let json = try? JSONSerialization.jsonObject(with: Data(SPBluetoothDataModel.shared.data.utf8), options: []) as? [String: Any],
+           let SPBluetoothDataTypeRaw = json["SPBluetoothDataType"] as? [Any],
+           let SPBluetoothDataType = SPBluetoothDataTypeRaw[0] as? [String: Any],
+           let device_connected = SPBluetoothDataType["device_connected"] as? [Any] {
+            for device in device_connected {
+                if let d = device as? [String: Any], let n = d.keys.first, n == name,
+                   let info = d[n] as? [String: Any],
+                   let mac = info["device_address"] as? String { return mac }
+            }
+        }
+        return def
+    }
+
+    /// Battery levels from macOS's accessory power-source registry — the list `pmset -g accps`
+    /// prints, and the one the system's own Bluetooth menu reads.
+    ///
+    /// This is the *only* route to a BLE input device whose battery lives solely in the standard
+    /// GATT Battery Service. Such a keyboard has no `device_batteryLevelMain` in `system_profiler`,
+    /// no `BatteryPercent` anywhere in the IORegistry, and emits none of the vendor statedumps
+    /// `logReader.sh` parses — yet macOS shows its level, which is what made the omission look like
+    /// an AirBattery bug rather than a source it had never read.
+    ///
+    /// It is also the most current source for devices the other scanners *do* find: the statedump
+    /// path reports whatever the device last broadcast inside the log window, which can be hours
+    /// stale (measured here: 64% from the log against a true 100%).
+    func getAccessoryBattery() {
+        guard let copyByType = ioPSCopyPowerSourcesByType,
+              let blob = copyByType(kIOPSSourceForAccessories)?.takeRetainedValue(),
+              let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef]
+        else { return }
+
+        let now = Date().timeIntervalSince1970
+        for source in sources {
+            guard let info = IOPSGetPowerSourceDescription(blob, source)?.takeUnretainedValue() as? [String: Any] else { continue }
+            // AirPods publish one power source per part (case, left, right). Those rows belong to
+            // the AirPods paths, which name them "… (Case)" / "… 🄻" / "… 🅁"; re-adding them under
+            // the bare accessory name would duplicate every pod instead of updating it.
+            guard info["Part Identifier"] == nil else { continue }
+            guard let name = info[kIOPSNameKey] as? String, !name.isEmpty,
+                  let category = info["Accessory Category"] as? String,
+                  let type = MagicBattery.accessoryCategoryTypes[category],
+                  let current = info[kIOPSCurrentCapacityKey] as? Int
+            else { continue }
+            // Accessories report out of 100 in practice, but the key is defined relative to
+            // "Max Capacity", so scale rather than assume.
+            let capacity = info[kIOPSMaxCapacityKey] as? Int ?? 100
+            guard capacity > 0 else { continue }
+            let level = min(100, current * 100 / capacity)
+            let isCharging = (info[kIOPSIsChargingKey] as? Bool ?? false) ? 1 : 0
+            let isCharged = info[kIOPSIsChargedKey] as? Bool ?? false
+
+            if var device = AirBatteryModel.getByName(name) {
+                // Refresh the reading, but keep the identity a more specific scanner established:
+                // `getMagicBattery` types a Magic Mouse as "MMouse", which the generic "Mouse"
+                // category here would otherwise downgrade to the plain mouse icon.
+                device.batteryLevel = level
+                device.isCharging = isCharging
+                device.isCharged = isCharged
+                device.lastUpdate = now
+                AirBatteryModel.updateDevice(device)
+            } else {
+                let id = getDeviceAddress(ofName: name, info["Accessory Identifier"] as? String ?? name)
+                AirBatteryModel.updateDevice(Device(deviceID: id, deviceType: type, deviceName: name, batteryLevel: level, isCharging: isCharging, isCharged: isCharged, lastUpdate: now))
+            }
+        }
+    }
+
     func getOtherBTBattery() {
         //guard let result = process(path: "/usr/sbin/system_profiler", arguments: ["SPBluetoothDataType", "-json"]) else { return }
         if let json = try? JSONSerialization.jsonObject(with: Data(SPBluetoothDataModel.shared.data.utf8), options: []) as? [String: Any],

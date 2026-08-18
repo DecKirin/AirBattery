@@ -291,6 +291,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
                                     LogReader.shared.run(.connect)
                                     MagicBattery.shared.getIOBTBattery()
                                     MagicBattery.shared.getOtherBTBattery()
+                                    // Pure IOKit, no subprocess, and the only source that sees a
+                                    // BLE keyboard/mouse reporting battery over plain GATT.
+                                    MagicBattery.shared.getAccessoryBattery()
                                 }
                             } else {
                                 if let device = AirBatteryModel.getByName(name) {
