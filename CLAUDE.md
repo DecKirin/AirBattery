@@ -8,13 +8,24 @@ AirBattery is a macOS menu bar / Dock app (SwiftUI + AppKit) that discovers the 
 
 ## Build & run
 
-There is no CLI build script, SPM `Package.swift`, or test target — this is an Xcode-only project (`AirBattery.xcodeproj`) with **no automated test suite**. To build/run/archive:
+There is no SPM `Package.swift` or test target — this is an Xcode-only project (`AirBattery.xcodeproj`) with **no automated test suite**. To build/run/archive:
 
 ```bash
 open AirBattery.xcodeproj          # then Cmd+R in Xcode, or:
 xcodebuild -project AirBattery.xcodeproj -scheme AirBattery -configuration Debug build
 xcodebuild -project AirBattery.xcodeproj -scheme AirBattery -configuration Release archive ...
 ```
+
+To produce a distributable disk image, use `scripts/build-dmg.sh` — the local counterpart to `.github/workflows/build-dmg.yml`. It builds, verifies the bundle (embedded widget/login item/`logReader.sh`, plus the static Library Validation check described below), and writes `dist/AirBattery-<version>.dmg`:
+
+```bash
+./scripts/build-dmg.sh                        # auto: Developer ID if installed, else ad-hoc
+./scripts/build-dmg.sh --adhoc                # force ad-hoc (local testing only)
+./scripts/build-dmg.sh --notarize <profile>   # Developer ID + notarytool + staple (shippable)
+./scripts/build-dmg.sh --help
+```
+
+Ad-hoc builds must pass `ENABLE_HARDENED_RUNTIME=NO`: hardened runtime enables Library Validation, which requires embedded frameworks to share the host's Team ID, and ad-hoc signatures have none — so dyld refuses to map `Sparkle.framework` and the app dies before `main()`. Both the script and the workflow encode this; hardened runtime must stay ON for anything notarized.
 
 The only shared scheme is `AirBattery` (builds/runs the main app target only; the helper, widget, and CLI targets build implicitly as embedded dependencies/CopyFiles, not via a separate scheme).
 

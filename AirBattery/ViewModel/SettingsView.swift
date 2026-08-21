@@ -426,10 +426,51 @@ private enum DesktopPicture {
     }()
 }
 
+/// The backdrop both dropdown previews float over. The wallpaper matters: adaptive mode is
+/// *defined* by what sits behind the panel, so against a flat swatch it would look identical to the
+/// system mode and the preview would not actually show you the difference you are choosing between.
+private struct DesktopBackdrop: View {
+    var body: some View {
+        if let wallpaper = DesktopPicture.image {
+            Image(nsImage: wallpaper).resizable().scaledToFill()
+        } else {
+            LinearGradient(colors: [Color(red: 0.16, green: 0.20, blue: 0.34),
+                                    Color(red: 0.42, green: 0.34, blue: 0.52)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+    }
+}
+
+/// Framing shared by both dropdown previews: clip to a rounded card, keep the `.scaledToFill()`
+/// wallpaper's invisible overflow from eating clicks meant for the pickers above, and stay out of
+/// the accessibility tree.
+///
+/// `.clipShape` clips drawing but NOT hit testing. The wallpaper renders far taller than the frame
+/// (a 1894x1065 picture in a 460x104 box draws 460x259) and its overflow spilled ~77pt upward, over
+/// the Theme picker — later Form rows paint above earlier ones, so the picker rendered normally but
+/// never received a click. `.contentShape` confines the hit region to the visible rounded rect; the
+/// previews are decorative, so they opt out of hit testing entirely as well.
+private struct PreviewCard: ViewModifier {
+    var height: CGFloat
+    var label: String
+
+    func body(content: Content) -> some View {
+        content
+            .frame(height: height)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(.separator, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+    }
+}
+
 /// Two representative capsules rendered by the real `DeviceCapsuleView`, over the current desktop
-/// picture. The wallpaper matters: adaptive mode is *defined* by what sits behind the panel, so
-/// against a flat swatch it would look identical to the system mode and the preview would not
-/// actually show you the difference you are choosing between.
+/// picture.
 private struct DropdownThemePreview: View {
     var theme: DropdownTheme
 
@@ -449,13 +490,7 @@ private struct DropdownThemePreview: View {
 
     var body: some View {
         ZStack {
-            if let wallpaper = DesktopPicture.image {
-                Image(nsImage: wallpaper).resizable().scaledToFill()
-            } else {
-                LinearGradient(colors: [Color(red: 0.16, green: 0.20, blue: 0.34),
-                                        Color(red: 0.42, green: 0.34, blue: 0.52)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-            }
+            DesktopBackdrop()
             ThemedGlassPreview(appearance: theme.nsAppearance) {
                 HStack(spacing: dropdownGridSpacing) {
                     ForEach(sampleDevices, id: \.deviceName) { device in
@@ -479,28 +514,47 @@ private struct DropdownThemePreview: View {
                 .modifier(DropdownThemeEnvironment(override: theme))
             }
         }
-        .frame(height: dropdownCapsuleCellHeight + dropdownOuterPadding * 2 - dropdownBadgeOverlap)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(.separator, lineWidth: 1)
-        )
-        // `.clipShape` clips drawing but NOT hit testing. The wallpaper is `.scaledToFill()`, so it
-        // renders far taller than this frame (a 1894x1065 picture in a 460x104 box draws 460x259)
-        // and its invisible overflow spilled ~77pt upward, over the Theme picker — later Form rows
-        // paint above earlier ones, so the picker rendered normally but never received a click.
-        // `.contentShape` confines the hit region to the visible rounded rect; the preview is
-        // decorative, so it opts out of hit testing entirely as well.
-        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .allowsHitTesting(false)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Preview of the device dropdown")
+        .modifier(PreviewCard(height: dropdownCapsuleCellHeight + dropdownOuterPadding * 2 - dropdownBadgeOverlap,
+                              label: "Preview of the device dropdown"))
+    }
+}
+
+/// The dropdown's toolbar row, rendered by the real dial views, so the unit picker is previewed on
+/// the only elements it actually changes.
+///
+/// The sample readings are fixed rather than taken from `InternalBattery.status`: a desktop Mac has
+/// no dials to show at all, and even on a laptop the live wattage would swing while you are trying
+/// to compare the three styles. 96W plugged in exercises the ringed dial, which is the tighter of
+/// the two layouts for a unit marker to fit into.
+private struct DropdownUnitStylePreview: View {
+    var theme: DropdownTheme
+    var unitStyle: DropdownUnitStyle
+
+    var body: some View {
+        ZStack {
+            DesktopBackdrop()
+            ThemedGlassPreview(appearance: theme.nsAppearance) {
+                HStack(spacing: dropdownToolbarSpacing) {
+                    CircleGlassButton(systemImage: "gearshape.fill") {}
+                    PowerWattageRing(watts: 96,
+                                     progress: 96 / maxAdapterWatts,
+                                     help: "") {}
+                    BatteryHealthRing(health: 92) {}
+                    CircleGlassButton(systemImage: "power") {}
+                }
+                .padding(dropdownOuterPadding - 6)
+                .modifier(DropdownThemeEnvironment(override: theme, unitOverride: unitStyle))
+            }
+        }
+        .modifier(PreviewCard(height: dropdownToolbarButtonSize + (dropdownOuterPadding - 6) * 2,
+                              label: "Preview of the dropdown toolbar dials"))
     }
 }
 
 struct DisplayView: View {
     @AppStorage("appearance") var appearance = "auto"
     @AppStorage("dropdownTheme") var dropdownTheme = DropdownTheme.adaptive.rawValue
+    @AppStorage("dropdownUnitStyle") var dropdownUnitStyle = DropdownUnitStyle.watermark.rawValue
     @AppStorage("showThisMac") var showThisMac = "icon"
     @AppStorage("carouselMode") var carouselMode = true
     @AppStorage("colorfulBattery") var colorfulBattery = false
@@ -513,6 +567,10 @@ struct DisplayView: View {
 
     private var selectedDropdownTheme: DropdownTheme {
         DropdownTheme(rawValue: dropdownTheme) ?? .adaptive
+    }
+
+    private var selectedDropdownUnitStyle: DropdownUnitStyle {
+        DropdownUnitStyle(rawValue: dropdownUnitStyle) ?? .watermark
     }
 
     var body: some View {
@@ -581,6 +639,19 @@ struct DisplayView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 DropdownThemePreview(theme: selectedDropdownTheme)
+                    .padding(.vertical, 4)
+                Picker("Dial Unit", selection: $dropdownUnitStyle) {
+                    Text("Hidden").tag(DropdownUnitStyle.hidden.rawValue)
+                    Text("Watermark").tag(DropdownUnitStyle.watermark.rawValue)
+                    Text("Badge").tag(DropdownUnitStyle.badge.rawValue)
+                }
+                .pickerStyle(.segmented)
+                .help("How the toolbar dials label their unit (W, %)")
+                Text(LocalizedStringKey(selectedDropdownUnitStyle.helpText))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                DropdownUnitStylePreview(theme: selectedDropdownTheme,
+                                         unitStyle: selectedDropdownUnitStyle)
                     .padding(.vertical, 4)
             } header: {
                 Text("Device Dropdown")

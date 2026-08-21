@@ -159,3 +159,10 @@
 "Battery Health" = "电池健康度";
 "Charging Power" = "充电功率";
 "Power Usage" = "耗电功率";
+"Dial Unit" = "表盘单位";
+"Watermark" = "水印";
+"Badge" = "角标";
+"How the toolbar dials label their unit (W, %)" = "工具栏表盘标注单位 (W、%) 的方式";
+"Just the number, with no unit on the dial" = "表盘上只有数字, 不显示单位";
+"The unit sits behind the number as a faint watermark" = "单位作为淡淡的水印置于数字之后";
+"The unit rides in a small circle on the dial's lower-right edge" = "单位位于表盘右下边缘的小圆圈中";

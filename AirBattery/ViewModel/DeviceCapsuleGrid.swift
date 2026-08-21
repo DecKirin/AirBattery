@@ -65,6 +65,37 @@ enum DropdownTheme: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Dial unit style
+
+/// How the toolbar dials (power wattage, battery health) label their unit.
+///
+/// The dials print a bare number, so the unit has to come from somewhere. `watermark` is the
+/// original behaviour and stays the default: the glyph sits *behind* the digits, washed out far
+/// enough to read as a tint in the glass, which keeps the whole width free for the number itself
+/// ("140" stays full size). `badge` moves it out to a small glass circle overlapping the dial's
+/// bottom-right edge, which reads more explicitly at the cost of a little clutter. `hidden` drops
+/// it entirely for anyone who already knows which dial is which.
+enum DropdownUnitStyle: String, CaseIterable, Identifiable {
+    case hidden
+    case watermark
+    case badge
+
+    var id: String { rawValue }
+
+    /// Falls back to `.watermark` — the pre-existing look — for an unset or unrecognised value.
+    static func current() -> DropdownUnitStyle {
+        DropdownUnitStyle(rawValue: ud.string(forKey: "dropdownUnitStyle") ?? "") ?? .watermark
+    }
+
+    var helpText: String {
+        switch self {
+        case .hidden: "Just the number, with no unit on the dial"
+        case .watermark: "The unit sits behind the number as a faint watermark"
+        case .badge: "The unit rides in a small circle on the dial's lower-right edge"
+        }
+    }
+}
+
 // MARK: - Pinned-theme plumbing
 //
 // `NSAppearance` alone is not enough to pin the panel. Liquid Glass samples the desktop behind the
@@ -84,26 +115,44 @@ private struct DropdownPinnedSchemeKey: EnvironmentKey {
     static let defaultValue: ColorScheme? = nil
 }
 
+private struct DropdownUnitStyleKey: EnvironmentKey {
+    static let defaultValue: DropdownUnitStyle = .watermark
+}
+
 extension EnvironmentValues {
     /// Non-nil when the dropdown is pinned to a fixed light/dark theme.
     var dropdownPinnedScheme: ColorScheme? {
         get { self[DropdownPinnedSchemeKey.self] }
         set { self[DropdownPinnedSchemeKey.self] = newValue }
     }
+
+    /// How the toolbar dials label their unit.
+    var dropdownUnitStyle: DropdownUnitStyle {
+        get { self[DropdownUnitStyleKey.self] }
+        set { self[DropdownUnitStyleKey.self] = newValue }
+    }
 }
 
-/// Publishes the selected theme into the environment. Reads `@AppStorage` so the panel and the
-/// Settings preview both follow the picker without any manual refresh.
+/// Publishes the dropdown's appearance settings into the environment. Reads `@AppStorage` so the
+/// panel and the Settings previews both follow the pickers without any manual refresh; the
+/// overrides let a preview show a setting the user is only hovering over, not one already stored.
 struct DropdownThemeEnvironment: ViewModifier {
     @AppStorage("dropdownTheme") private var raw = DropdownTheme.adaptive.rawValue
+    @AppStorage("dropdownUnitStyle") private var unitRaw = DropdownUnitStyle.watermark.rawValue
     var override: DropdownTheme?
+    var unitOverride: DropdownUnitStyle?
 
-    init(override: DropdownTheme? = nil) { self.override = override }
+    init(override: DropdownTheme? = nil, unitOverride: DropdownUnitStyle? = nil) {
+        self.override = override
+        self.unitOverride = unitOverride
+    }
 
     func body(content: Content) -> some View {
         let scheme = (override ?? DropdownTheme(rawValue: raw) ?? .adaptive).pinnedScheme
+        let unit = unitOverride ?? DropdownUnitStyle(rawValue: unitRaw) ?? .watermark
         content
             .environment(\.dropdownPinnedScheme, scheme)
+            .environment(\.dropdownUnitStyle, unit)
             .modifier(ConditionalScheme(scheme: scheme))
     }
 }
@@ -165,6 +214,9 @@ let dropdownBadgeHeight: CGFloat = 26
 let dropdownBadgeOverlap: CGFloat = dropdownBadgeHeight / 2
 let dropdownCapsuleCellHeight: CGFloat = dropdownCapsuleHeight + dropdownBadgeOverlap
 let dropdownToolbarButtonSize: CGFloat = 44
+/// Diameter of the `badge` unit marker. Sized so that, sitting in the dial's bottom-right corner,
+/// its centre lands on the dial's own circumference — half on the glass, half off it.
+let dropdownUnitBadgeSize: CGFloat = 18
 
 /// Precomputed panel height for the borderless window, since it isn't auto-sized like `NSPopover` was.
 func estimatedDropdownHeight(deviceCount: Int) -> CGFloat {
@@ -346,6 +398,67 @@ func tieredGlass<S: InsettableShape>(_ shape: S, color: Color, fallbackOpacity: 
     TieredGlass(shape: shape, color: color, fallbackOpacity: fallbackOpacity)
 }
 
+// MARK: - Dial unit markers
+//
+// Both toolbar dials print a bare number and get their unit from one of these, picked by
+// `DropdownUnitStyle`. They are two separate pieces because the two styles live at different depths:
+// the watermark belongs *inside* the dial's ZStack, underneath the digits, while the badge has to be
+// layered on after the glass so it can overhang the dial's edge.
+
+/// The unit as a washed-out glyph behind the number. Kept faint enough to read as a tint in the
+/// glass rather than as a second glyph competing with the number sitting on top of it.
+private struct DialUnitWatermark: View {
+    var unit: String
+    /// The dials pick this differently: an un-ringed dial has its whole inner circle free, a ringed
+    /// one has to leave the outer band clear.
+    var size: CGFloat
+    @Environment(\.dropdownUnitStyle) private var style
+
+    var body: some View {
+        if style == .watermark {
+            Text(unit)
+                .font(.system(size: size, weight: .bold))
+                .dropdownForeground(.primary, opacity: 0.09)
+        }
+    }
+}
+
+/// The unit in a second, smaller glass circle straddling the dial's lower-right edge — the same
+/// layering idiom as the capsules' icon badge, and the reason it uses the neutral chrome glass
+/// rather than the toolbar's interactive variant: it is a marker on the button, not a button.
+private struct DialUnitBadge: ViewModifier {
+    var unit: String
+    @Environment(\.dropdownUnitStyle) private var style
+
+    func body(content: Content) -> some View {
+        if style == .badge {
+            content.overlay(alignment: .bottomTrailing) {
+                Text(unit)
+                    .font(.system(size: 10, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .dropdownForeground(.primary)
+                    .frame(width: dropdownUnitBadgeSize, height: dropdownUnitBadgeSize)
+                    .chromeGlassBackground(in: Circle())
+                    // Pushed just past the corner so the badge clears the dial's own rim instead of
+                    // sitting tangent to it. The toolbar row has `dropdownOuterPadding` below it and
+                    // `dropdownToolbarSpacing` between buttons, so the 2pt overhang has room.
+                    .offset(x: 2, y: 2)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// Layers the `badge` unit marker onto a toolbar dial. Apply *after* the dial's glass, so the
+    /// badge sits on top of it. A no-op in the other two styles.
+    func dialUnitBadge(_ unit: String) -> some View {
+        modifier(DialUnitBadge(unit: unit))
+    }
+}
+
 // MARK: - Toolbar buttons
 
 /// Circular glass button used in the dropdown's floating toolbar (Settings, Quit/Close).
@@ -381,11 +494,9 @@ struct BatteryHealthRing: View {
                     .trim(from: 0, to: CGFloat(max(0, min(100, health))) / 100)
                     .stroke(Color(getHealthColor(health)), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                // Unit watermark on the same terms as `PowerWattageRing`'s ringed state, so the two
-                // adjacent dials read as one pair rather than two unrelated gauges.
-                Text("%")
-                    .font(.system(size: 20, weight: .bold))
-                    .dropdownForeground(.primary, opacity: 0.09)
+                // Unit on the same terms as `PowerWattageRing`, so the two adjacent dials read as
+                // one pair rather than two unrelated gauges.
+                DialUnitWatermark(unit: "%", size: 20)
                 Text("\(health)")
                     .font(.system(size: 13, weight: .semibold))
                     .monospacedDigitIfAvailable()
@@ -396,6 +507,7 @@ struct BatteryHealthRing: View {
             .padding(6)
             .frame(width: dropdownToolbarButtonSize, height: dropdownToolbarButtonSize)
             .toolbarGlassBackground()
+            .dialUnitBadge("%")
         }
         .buttonStyle(.plain)
         .help("\("Battery Health".local): \(health)%")
@@ -423,8 +535,8 @@ struct PowerWattageRing: View {
 
     /// Whole watts while plugged in (adapters are rated in whole numbers anyway); one decimal on
     /// battery, where the draw is small enough that rounding to 6 vs 7 loses real signal — but only
-    /// below 10, so the text never outgrows the circle. The unit is carried by the watermark behind
-    /// the number rather than by a suffix here.
+    /// below 10, so the text never outgrows the circle. The unit is carried by the marker that
+    /// `DropdownUnitStyle` picks rather than by a suffix here.
     private var label: String {
         if progress != nil || watts >= 10 { return "\(Int(watts.rounded()))" }
         return String(format: "%.1f", watts)
@@ -446,13 +558,9 @@ struct PowerWattageRing: View {
                         .stroke(Color("my_green"), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                 }
-                // Unit as a washed-out watermark rather than a suffix: it frees the whole width for
-                // the digits (so "140" stays full size) while keeping the reading unambiguous.
-                // Kept faint enough to read as a tint in the glass rather than as a second glyph
-                // competing with the number sitting on top of it.
-                Text("W")
-                    .font(.system(size: watermarkSize, weight: .bold))
-                    .dropdownForeground(.primary, opacity: 0.09)
+                // Unit as a marker rather than a suffix: it frees the whole width for the digits
+                // (so "140" stays full size) while keeping the reading unambiguous.
+                DialUnitWatermark(unit: "W", size: watermarkSize)
                 Text(label)
                     .font(.system(size: labelSize, weight: .semibold))
                     .monospacedDigitIfAvailable()
@@ -463,6 +571,7 @@ struct PowerWattageRing: View {
             .padding(6)
             .frame(width: dropdownToolbarButtonSize, height: dropdownToolbarButtonSize)
             .toolbarGlassBackground()
+            .dialUnitBadge("W")
         }
         .buttonStyle(.plain)
         .help(help)
