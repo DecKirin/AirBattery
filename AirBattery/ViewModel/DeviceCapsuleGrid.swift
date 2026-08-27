@@ -596,7 +596,15 @@ struct DeviceCapsuleView: View {
 
     private var isInternalBattery: Bool { device.deviceID == "@MacInternalBattery" }
     private var isStale: Bool { (Date().timeIntervalSince1970 - device.lastUpdate) / 60 > 10 }
+    /// A Pencil's `deviceModel` is the raw USB product ID that SpringBoard logs ("332", "222"), not
+    /// a model identifier — `displayModelName` can't name it and a bare number says nothing. What is
+    /// actually worth knowing on that line is which iPad it was read through, which `getPencil`
+    /// already stores as the parent.
+    private var isPencilWithParent: Bool {
+        ["ApplePencil", "Pencil"].contains(device.deviceType) && !device.parentName.isEmpty
+    }
     private var subtitleText: String {
+        if isPencilWithParent { return device.parentName }
         // `deviceModel` is a raw model identifier for Apple mobile devices ("iPhone17,1"); show the
         // marketing name where we know it. Other producers put a friendly string in there already
         // (AirPods), and those pass through untouched.
