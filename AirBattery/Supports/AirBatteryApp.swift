@@ -416,7 +416,10 @@ func presentDeviceDropdown(fromDock: Bool) {
             deviceCount += AirBatteryModel.ncGetAll(url: jsonUrl).count
         }
     }
-    let panelSize = NSSize(width: dropdownPanelWidth, height: estimatedDropdownHeight(deviceCount: deviceCount))
+    // Rounded because the panel-size preference is a multiplier: an unrounded Small or Large panel
+    // would hand AppKit a half-point window frame.
+    let panelSize = NSSize(width: dropdownPanelWidth.rounded(),
+                           height: estimatedDropdownHeight(deviceCount: deviceCount).rounded())
     let origin = fromDock ? dockAnchoredDropdownOrigin(panelSize: panelSize) : statusBarAnchoredDropdownOrigin(panelSize: panelSize)
     let frame = NSRect(origin: origin, size: panelSize)
 

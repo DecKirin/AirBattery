@@ -96,6 +96,43 @@ enum DropdownUnitStyle: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Panel size
+
+/// Overall size of the dropdown panel.
+///
+/// One multiplier drives every metric below rather than each size carrying its own table of values,
+/// so the panel keeps its proportions — Small is the same design at 85%, not a different layout.
+/// `regular` is the original 380pt panel and stays the default.
+enum DropdownPanelSize: String, CaseIterable, Identifiable {
+    case small
+    case regular
+    case large
+
+    var id: String { rawValue }
+
+    /// Falls back to `.regular` — the pre-existing size — for an unset or unrecognised value.
+    static func current() -> DropdownPanelSize {
+        DropdownPanelSize(rawValue: ud.string(forKey: "dropdownPanelSize") ?? "") ?? .regular
+    }
+
+    /// The multiplier every dropdown metric is expressed in.
+    var scale: CGFloat {
+        switch self {
+        case .small: 0.85   // 323pt wide, 54pt capsules
+        case .regular: 1.0  // 380pt wide, 64pt capsules
+        case .large: 1.18   // 448pt wide, 76pt capsules
+        }
+    }
+
+    var helpText: String {
+        switch self {
+        case .small: "A compact panel that takes up less of the screen"
+        case .regular: "The standard panel size"
+        case .large: "A roomier panel, easier to read on a large display"
+        }
+    }
+}
+
 // MARK: - Pinned-theme plumbing
 //
 // `NSAppearance` alone is not enough to pin the panel. Liquid Glass samples the desktop behind the
@@ -203,20 +240,34 @@ func dropdownStroke(_ pinned: ColorScheme?, opacity: Double) -> AnyShapeStyle {
 
 // MARK: - Layout constants (shared with AirBatteryApp.swift's window sizing)
 
-let dropdownPanelWidth: CGFloat = 380
-let dropdownOuterPadding: CGFloat = 20
-let dropdownToolbarHeight: CGFloat = 44
-let dropdownToolbarSpacing: CGFloat = 14
-let dropdownGridSpacing: CGFloat = 18
-let dropdownCapsuleHeight: CGFloat = 64
-let dropdownCapsuleFillInset: CGFloat = 6
-let dropdownBadgeHeight: CGFloat = 26
-let dropdownBadgeOverlap: CGFloat = dropdownBadgeHeight / 2
-let dropdownCapsuleCellHeight: CGFloat = dropdownCapsuleHeight + dropdownBadgeOverlap
-let dropdownToolbarButtonSize: CGFloat = 44
+// Every value here is the `regular` measurement times the user's panel-size multiplier. They are
+// computed rather than stored so the size preference is re-read at layout time: that is what lets
+// the Settings previews resize the moment the picker changes, while the panel itself picks the new
+// size up the next time it opens — the same contract the theme picker already advertises.
+
+/// The multiplier every dropdown metric is expressed in, from the user's panel-size preference.
+var dropdownScale: CGFloat { DropdownPanelSize.current().scale }
+
+/// Scales a one-off measurement — a font size, an icon frame, a nudge — with the panel.
+///
+/// Geometry alone is not enough: full-size type in a Small capsule would crowd it, so the text and
+/// icons have to travel with the box that holds them.
+func dropdownScaled(_ base: CGFloat) -> CGFloat { base * dropdownScale }
+
+var dropdownPanelWidth: CGFloat { 380 * dropdownScale }
+var dropdownOuterPadding: CGFloat { 20 * dropdownScale }
+var dropdownToolbarHeight: CGFloat { 44 * dropdownScale }
+var dropdownToolbarSpacing: CGFloat { 14 * dropdownScale }
+var dropdownGridSpacing: CGFloat { 18 * dropdownScale }
+var dropdownCapsuleHeight: CGFloat { 64 * dropdownScale }
+var dropdownCapsuleFillInset: CGFloat { 6 * dropdownScale }
+var dropdownBadgeHeight: CGFloat { 26 * dropdownScale }
+var dropdownBadgeOverlap: CGFloat { dropdownBadgeHeight / 2 }
+var dropdownCapsuleCellHeight: CGFloat { dropdownCapsuleHeight + dropdownBadgeOverlap }
+var dropdownToolbarButtonSize: CGFloat { 44 * dropdownScale }
 /// Diameter of the `badge` unit marker. Sized so that, sitting in the dial's bottom-right corner,
 /// its centre lands on the dial's own circumference — half on the glass, half off it.
-let dropdownUnitBadgeSize: CGFloat = 18
+var dropdownUnitBadgeSize: CGFloat { 18 * dropdownScale }
 
 /// Precomputed panel height for the borderless window, since it isn't auto-sized like `NSPopover` was.
 func estimatedDropdownHeight(deviceCount: Int) -> CGFloat {
@@ -434,7 +485,7 @@ private struct DialUnitBadge: ViewModifier {
         if style == .badge {
             content.overlay(alignment: .bottomTrailing) {
                 Text(unit)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: dropdownScaled(10), weight: .bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .dropdownForeground(.primary)
@@ -443,7 +494,7 @@ private struct DialUnitBadge: ViewModifier {
                     // Pushed just past the corner so the badge clears the dial's own rim instead of
                     // sitting tangent to it. The toolbar row has `dropdownOuterPadding` below it and
                     // `dropdownToolbarSpacing` between buttons, so the 2pt overhang has room.
-                    .offset(x: 2, y: 2)
+                    .offset(x: dropdownScaled(2), y: dropdownScaled(2))
             }
         } else {
             content
@@ -469,7 +520,7 @@ struct CircleGlassButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 17, weight: .medium))
+                .font(.system(size: dropdownScaled(17), weight: .medium))
                 .dropdownForeground(.primary)
                 .frame(width: dropdownToolbarButtonSize, height: dropdownToolbarButtonSize)
                 .toolbarGlassBackground()
@@ -489,22 +540,22 @@ struct BatteryHealthRing: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .stroke(dropdownStroke(pinned, opacity: 0.18), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                    .stroke(dropdownStroke(pinned, opacity: 0.18), style: StrokeStyle(lineWidth: dropdownScaled(3.5), lineCap: .round))
                 Circle()
                     .trim(from: 0, to: CGFloat(max(0, min(100, health))) / 100)
-                    .stroke(Color(getHealthColor(health)), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                    .stroke(Color(getHealthColor(health)), style: StrokeStyle(lineWidth: dropdownScaled(3.5), lineCap: .round))
                     .rotationEffect(.degrees(-90))
                 // Unit on the same terms as `PowerWattageRing`, so the two adjacent dials read as
                 // one pair rather than two unrelated gauges.
-                DialUnitWatermark(unit: "%", size: 20)
+                DialUnitWatermark(unit: "%", size: dropdownScaled(20))
                 Text("\(health)")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: dropdownScaled(13), weight: .semibold))
                     .monospacedDigitIfAvailable()
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .dropdownForeground(.primary)
             }
-            .padding(6)
+            .padding(dropdownScaled(6))
             .frame(width: dropdownToolbarButtonSize, height: dropdownToolbarButtonSize)
             .toolbarGlassBackground()
             .dialUnitBadge("%")
@@ -544,18 +595,18 @@ struct PowerWattageRing: View {
 
     /// Discharge draws no arc, so the whole inner circle is free and both the digits and the
     /// watermark behind them can run bigger; the charging ring needs that outer band left clear.
-    private var labelSize: CGFloat { progress == nil ? 15 : 13 }
-    private var watermarkSize: CGFloat { progress == nil ? 21 : 18 }
+    private var labelSize: CGFloat { dropdownScaled(progress == nil ? 15 : 13) }
+    private var watermarkSize: CGFloat { dropdownScaled(progress == nil ? 21 : 18) }
 
     var body: some View {
         Button(action: action) {
             ZStack {
                 if let progress {
                     Circle()
-                        .stroke(dropdownStroke(pinned, opacity: 0.18), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                        .stroke(dropdownStroke(pinned, opacity: 0.18), style: StrokeStyle(lineWidth: dropdownScaled(3.5), lineCap: .round))
                     Circle()
                         .trim(from: 0, to: CGFloat(max(0, min(1, progress))))
-                        .stroke(Color("my_green"), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                        .stroke(Color("my_green"), style: StrokeStyle(lineWidth: dropdownScaled(3.5), lineCap: .round))
                         .rotationEffect(.degrees(-90))
                 }
                 // Unit as a marker rather than a suffix: it frees the whole width for the digits
@@ -568,7 +619,7 @@ struct PowerWattageRing: View {
                     .minimumScaleFactor(0.7)
                     .dropdownForeground(.primary)
             }
-            .padding(6)
+            .padding(dropdownScaled(6))
             .frame(width: dropdownToolbarButtonSize, height: dropdownToolbarButtonSize)
             .toolbarGlassBackground()
             .dialUnitBadge("W")
@@ -681,63 +732,63 @@ struct DeviceCapsuleView: View {
     /// track and toolbar buttons. As always the glass is applied to the content, not stacked behind
     /// it, so the icon and label inherit that vibrancy.
     private var badge: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: dropdownScaled(4)) {
             Image(getDeviceIcon(device))
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
+                .frame(width: dropdownScaled(14), height: dropdownScaled(14))
                 .dropdownForeground(.primary)
             if device.hasBattery {
                 Text("\(device.batteryLevel)%")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: dropdownScaled(11), weight: .semibold))
                     .dropdownForeground(.primary)
                     .monospacedDigitIfAvailable()
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, dropdownScaled(10))
         .frame(height: dropdownBadgeHeight)
         .chromeGlassBackground(in: Capsule(style: .continuous))
-        .offset(x: 12)
+        .offset(x: dropdownScaled(12))
     }
 
     @ViewBuilder
     private func textContent(totalWidth: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 3) {
+        VStack(alignment: .leading, spacing: dropdownScaled(2)) {
+            HStack(spacing: dropdownScaled(3)) {
                 Text((isStale ? "⚠︎ " : "") + device.deviceName)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: dropdownScaled(12), weight: .semibold))
                     .dropdownForeground(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 if isAlerting {
-                    Image(systemName: "bell.fill").font(.system(size: 9)).dropdownForeground(.secondary)
+                    Image(systemName: "bell.fill").font(.system(size: dropdownScaled(9))).dropdownForeground(.secondary)
                 }
                 if isPinned {
-                    Image(systemName: "pin.fill").font(.system(size: 9)).dropdownForeground(.secondary)
+                    Image(systemName: "pin.fill").font(.system(size: dropdownScaled(9))).dropdownForeground(.secondary)
                 }
             }
             if isHovered && device.hasBattery {
-                HStack(spacing: 8) {
+                HStack(spacing: dropdownScaled(8)) {
                     Button(action: onToggleAlert) {
                         Image(isAlerting ? "bell.circle.fill" : "bell.circle")
-                            .resizable().scaledToFit().frame(width: 15, height: 15)
+                            .resizable().scaledToFit().frame(width: dropdownScaled(15), height: dropdownScaled(15))
                     }.buttonStyle(.plain)
                     if !isInternalBattery {
                         Button(action: onTogglePin) {
                             Image(isPinned ? "pin.circle.fill" : "pin.circle")
-                                .resizable().scaledToFit().frame(width: 15, height: 15)
+                                .resizable().scaledToFit().frame(width: dropdownScaled(15), height: dropdownScaled(15))
                         }.buttonStyle(.plain)
                     }
                     if #available(macOS 14, *) {
                         Button(action: onCopyName) {
                             Image("list.clipboard.fill.circle")
-                                .resizable().scaledToFit().frame(width: 15, height: 15)
+                                .resizable().scaledToFit().frame(width: dropdownScaled(15), height: dropdownScaled(15))
                         }.buttonStyle(.plain)
                     }
                     if !isInternalBattery {
                         Button(action: onHide) {
                             Image("eye.slash.circle")
-                                .resizable().scaledToFit().frame(width: 15, height: 15)
+                                .resizable().scaledToFit().frame(width: dropdownScaled(15), height: dropdownScaled(15))
                         }.buttonStyle(.plain)
                     }
                 }
@@ -746,7 +797,7 @@ struct DeviceCapsuleView: View {
                 Group {
                     if isInternalBattery { internalBatterySubtitle } else { Text(subtitleText) }
                 }
-                    .font(.system(size: 10, weight: .regular))
+                    .font(.system(size: dropdownScaled(10), weight: .regular))
                     .dropdownForeground(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
@@ -754,8 +805,8 @@ struct DeviceCapsuleView: View {
         }
         // Inset past the capsule's round end so text starts on the straight part, and keep a real
         // gap at the trailing edge instead of running to the rim.
-        .padding(.leading, dropdownCapsuleFillInset + 16)
-        .padding(.trailing, dropdownCapsuleFillInset + 14)
+        .padding(.leading, dropdownCapsuleFillInset + dropdownScaled(16))
+        .padding(.trailing, dropdownCapsuleFillInset + dropdownScaled(14))
         .frame(width: totalWidth, height: dropdownCapsuleHeight, alignment: .leading)
     }
 }

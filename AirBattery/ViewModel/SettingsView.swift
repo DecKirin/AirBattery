@@ -509,6 +509,9 @@ private struct DropdownThemePreview: View {
                 }
                 .padding(.horizontal, dropdownOuterPadding)
                 .padding(.vertical, dropdownOuterPadding - dropdownBadgeOverlap / 2)
+                // The panel's real width, so the size picker's effect on width shows here and not
+                // just its effect on height. Clamps to the form when Large is wider than the window.
+                .frame(maxWidth: dropdownPanelWidth)
                 // Same opt-out as the real panel, driven by the theme being previewed rather than
                 // the stored one, so the preview matches what the picker is currently showing.
                 .modifier(DropdownThemeEnvironment(override: theme))
@@ -553,6 +556,7 @@ private struct DropdownUnitStylePreview: View {
 
 struct DisplayView: View {
     @AppStorage("appearance") var appearance = "auto"
+    @AppStorage("dropdownPanelSize") var dropdownPanelSize = DropdownPanelSize.regular.rawValue
     @AppStorage("dropdownTheme") var dropdownTheme = DropdownTheme.adaptive.rawValue
     @AppStorage("dropdownUnitStyle") var dropdownUnitStyle = DropdownUnitStyle.watermark.rawValue
     @AppStorage("showThisMac") var showThisMac = "icon"
@@ -564,6 +568,10 @@ struct DisplayView: View {
     @AppStorage("hideLevel") var hideLevel = 100
     @AppStorage("disappearTime") var disappearTime = 20
     @State private var levelList = [95, 90, 80, 70, 60, 50, 40, 30, 20, 10]
+
+    private var selectedDropdownPanelSize: DropdownPanelSize {
+        DropdownPanelSize(rawValue: dropdownPanelSize) ?? .regular
+    }
 
     private var selectedDropdownTheme: DropdownTheme {
         DropdownTheme(rawValue: dropdownTheme) ?? .adaptive
@@ -628,6 +636,16 @@ struct DisplayView: View {
                 Text("Dock")
             }
             Section {
+                Picker("Panel Size", selection: $dropdownPanelSize) {
+                    Text("Small").tag(DropdownPanelSize.small.rawValue)
+                    Text("Default").tag(DropdownPanelSize.regular.rawValue)
+                    Text("Large").tag(DropdownPanelSize.large.rawValue)
+                }
+                .pickerStyle(.segmented)
+                .help("How large the panel and everything in it is drawn")
+                Text(LocalizedStringKey(selectedDropdownPanelSize.helpText))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Picker("Theme", selection: $dropdownTheme) {
                     Text("Adaptive").tag(DropdownTheme.adaptive.rawValue)
                     Text("System").tag(DropdownTheme.system.rawValue)

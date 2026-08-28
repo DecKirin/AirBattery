@@ -166,3 +166,11 @@
 "Just the number, with no unit on the dial" = "錶盤上只有數字, 不顯示單位";
 "The unit sits behind the number as a faint watermark" = "單位作為淡淡的浮水印置於數字之後";
 "The unit rides in a small circle on the dial's lower-right edge" = "單位位於錶盤右下邊緣的小圓圈中";
+
+"Panel Size" = "面板尺寸";
+"Small" = "小";
+"Large" = "大";
+"How large the panel and everything in it is drawn" = "面板及其中所有元素的繪製尺寸";
+"A compact panel that takes up less of the screen" = "緊湊的面板, 佔用更少的螢幕空間";
+"The standard panel size" = "標準面板尺寸";
+"A roomier panel, easier to read on a large display" = "更寬敞的面板, 在大螢幕上更易閱讀";
