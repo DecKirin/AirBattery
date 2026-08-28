@@ -357,7 +357,7 @@ struct popover: View {
     }
 
     private var toolbar: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: dropdownToolbarSpacing) {
             Spacer()
             CircleGlassButton(systemImage: "gearshape.fill") {
                 deviceDropdownWindow.dismiss()
@@ -412,18 +412,18 @@ struct popover: View {
 
     private var emptyState: some View {
         let ib = ib2ab(InternalBattery.status)
-        return HStack(spacing: 8) {
+        return HStack(spacing: dropdownScaled(8)) {
             Image(getDeviceIcon(ib))
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .foregroundStyle(.primary)
-                .frame(width: 20, height: 20, alignment: .center)
+                .frame(width: dropdownScaled(20), height: dropdownScaled(20), alignment: .center)
             Text(ib.deviceName)
-                .font(.system(size: 12))
+                .font(.system(size: dropdownScaled(12)))
                 .foregroundStyle(.primary)
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 16)
+        .padding(.vertical, dropdownScaled(10))
+        .padding(.horizontal, dropdownScaled(16))
         .chromeGlassBackground(in: Capsule(style: .continuous))
     }
 

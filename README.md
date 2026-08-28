@@ -30,6 +30,7 @@ Clicking the Dock or status bar icon opens a borderless panel that floats direct
   Both appear only when the machine has a battery and IOKit has a reading to give, so desktop Macs simply see fewer buttons.
   - **Dial units.** Preferences → *Menu Bar & Dock* → *Device Dropdown* → *Dial Unit* chooses how those two dials label their unit (W, %): **Watermark** (the default) sets it behind the number as a faint glyph, **Badge** moves it into a small glass circle straddling the dial's lower-right edge, and **Hidden** leaves the number bare.
 - **Themes.** Preferences → *Menu Bar & Dock* → *Device Dropdown* picks how the glass resolves: **Adaptive** (the default) samples whatever is behind the panel so it stays readable on any wallpaper, while **System**, **Light** and **Dark** pin an appearance.
+- **Panel size.** Preferences → *Menu Bar & Dock* → *Device Dropdown* → *Panel Size* scales the panel proportionally — width, capsules, dials and type all move together — between **Small**, **Default** and **Large**.
 
 On macOS 26 all of this is drawn in real Liquid Glass, including the widgets, which let the system material show through instead of painting over it. On macOS 13–15 the same layout renders with tinted translucent fills.
 
@@ -78,6 +79,9 @@ brew install lihaoyun6/tap/airbattery
 
 **8. The W and % behind the toolbar dials bother me. Can I change them?**
 > Preferences → *Menu Bar & Dock* → *Device Dropdown* → *Dial Unit*, which offers **Watermark**, **Badge** and **Hidden**. A live preview of the dials sits under the picker.  
+
+**9. The panel is too small (or too large) on my display. Can I resize it?**
+> Preferences → *Menu Bar & Dock* → *Device Dropdown* → *Panel Size*, which offers **Small**, **Default** and **Large**. The whole panel scales proportionally, and the change takes effect the next time the dropdown is opened.  
 
 ## Donate
 <img src="./img/donate.png" width="350"/>
