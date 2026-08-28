@@ -269,7 +269,24 @@ var dropdownToolbarButtonSize: CGFloat { 44 * dropdownScale }
 /// its centre lands on the dial's own circumference — half on the glass, half off it.
 var dropdownUnitBadgeSize: CGFloat { 18 * dropdownScale }
 
+/// Transparent margin the window keeps on the sides and below the panel content, so the chrome's
+/// shadows have room to fall off *inside* the window instead of being sliced at its edge.
+///
+/// The window used to be exactly the content's layout box. In adaptive mode Liquid Glass casts a
+/// shadow that reaches well past `dropdownOuterPadding` — measured on a light backdrop, still ~6%
+/// opaque where the window ended — so the window's own edge cut it dead and the panel picked up a
+/// hard rectangular seam a few points outside the capsules. Pinned themes never showed it:
+/// `GlassmorphicPane` draws its own 9pt shadow, which lands comfortably inside the padding.
+///
+/// Nothing casts a shadow *upward*, so the top gets no bleed — which is also what keeps the window
+/// from creeping over the status item it hangs from.
+///
+/// Rounded here rather than at the window, so the SwiftUI padding and the window frame agree to the
+/// point at Small and Large; a half-point disagreement would nudge the panel off its own centre.
+var dropdownShadowBleed: CGFloat { (24 * dropdownScale).rounded() }
+
 /// Precomputed panel height for the borderless window, since it isn't auto-sized like `NSPopover` was.
+/// Content only — the window adds `dropdownShadowBleed` around it.
 func estimatedDropdownHeight(deviceCount: Int) -> CGFloat {
     let rows = max(1, Int(ceil(Double(max(deviceCount, 1)) / 2.0)))
     let gridHeight = CGFloat(rows) * dropdownCapsuleCellHeight + CGFloat(max(0, rows - 1)) * dropdownGridSpacing
