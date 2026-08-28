@@ -418,10 +418,16 @@ func presentDeviceDropdown(fromDock: Bool) {
     }
     // Rounded because the panel-size preference is a multiplier: an unrounded Small or Large panel
     // would hand AppKit a half-point window frame.
-    let panelSize = NSSize(width: dropdownPanelWidth.rounded(),
-                           height: estimatedDropdownHeight(deviceCount: deviceCount).rounded())
-    let origin = fromDock ? dockAnchoredDropdownOrigin(panelSize: panelSize) : statusBarAnchoredDropdownOrigin(panelSize: panelSize)
-    let frame = NSRect(origin: origin, size: panelSize)
+    let contentSize = NSSize(width: dropdownPanelWidth.rounded(),
+                             height: estimatedDropdownHeight(deviceCount: deviceCount).rounded())
+    // The window is deliberately bigger than the panel: `dropdownShadowBleed` of transparent margin
+    // on both sides and underneath gives the glass shadows somewhere to fade out, instead of the
+    // window edge cutting them into a hard seam. Anchoring still works off the *content* box, and
+    // the origin shifts by the same bleed, so the panel itself lands exactly where it always did.
+    let bleed = dropdownShadowBleed
+    let panelSize = NSSize(width: contentSize.width + bleed * 2, height: contentSize.height + bleed)
+    let origin = fromDock ? dockAnchoredDropdownOrigin(panelSize: contentSize) : statusBarAnchoredDropdownOrigin(panelSize: contentSize)
+    let frame = NSRect(x: origin.x - bleed, y: origin.y - bleed, width: panelSize.width, height: panelSize.height)
 
     // Reuse the window and hosting view rather than rebuilding them per open. Constructing a fresh
     // window each time forced the glass to re-establish and re-sample its backdrop from scratch,

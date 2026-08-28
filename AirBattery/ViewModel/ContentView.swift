@@ -339,6 +339,11 @@ struct popover: View {
         .padding(dropdownOuterPadding)
         .frame(width: dropdownPanelWidth)
         .fixedSize(horizontal: false, vertical: true)
+        // Sit the panel inside the window's shadow bleed, so the glass shadows fade out instead of
+        // being clipped by the window edge. See `dropdownShadowBleed`; the window frame in
+        // `presentDeviceDropdown` grows by the same amounts, so the content does not move.
+        .padding(.horizontal, dropdownShadowBleed)
+        .padding(.bottom, dropdownShadowBleed)
         // Publishes the selected theme so the capsules can opt out of backdrop-sampling glass and
         // vibrancy inks when pinned — `NSAppearance` on the window only fixes the first frame.
         .modifier(DropdownThemeEnvironment())
