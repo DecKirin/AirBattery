@@ -470,16 +470,17 @@ struct MediumWidgetView : View {
 struct BatteryView: View {
     var item: Device
     var body: some View {
-        let width = round(max(1, min(19, Double(item.batteryLevel)/100*19)))
+        let m = NativeBattery.classic
+        let width = m.levelWidth(item.batteryLevel)
         ZStack{
             ZStack(alignment: .leading) {
-                Image("batt_outline_bold")
+                NativeBatteryShell(metrics: m)
                 Group{
                     Rectangle()
                         .fill(Color(getPowerColor(item)))
-                        .frame(width: width, height: 8, alignment: .leading)
-                        .clipShape(RoundedRectangle(cornerRadius: 1.5, style: .continuous))
-                }.offset(x:2)
+                        .frame(width: width, height: m.levelSize.height, alignment: .leading)
+                        .clipShape(RoundedRectangle(cornerRadius: m.levelCornerRadius, style: .continuous))
+                }.offset(x: m.levelOffset)
             }
             //.frame(width: 25.5, height: 12, alignment: .leading)
             if item.deviceID == "@MacInternalBattery" {
