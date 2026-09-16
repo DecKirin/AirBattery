@@ -564,7 +564,7 @@ struct DisplayView: View {
     @AppStorage("colorfulBattery") var colorfulBattery = false
     @AppStorage("iosBatteryStyle") var iosBatteryStyle = false
     @AppStorage("intBattOnStatusBar") var intBattOnStatusBar = true
-    @AppStorage("batteryPercent") var batteryPercent = "outside"
+    @AppStorage("showBatteryPercent") var showBatteryPercent = true
     @AppStorage("hideLevel") var hideLevel = 100
     @AppStorage("disappearTime") var disappearTime = 20
     @State private var levelList = [95, 90, 80, 70, 60, 50, 40, 30, 20, 10]
@@ -592,12 +592,8 @@ struct DisplayView: View {
                     Text("iOS").tag(true)
                 }
                 .disabled(!intBattOnStatusBar)
-                Picker("Show Percentage", selection: $batteryPercent) {
-                    Text("Hidden").tag("hide")
-                    Text("Inside").tag("inside")
-                    Text("Outside").tag("outside")
-                }
-                .disabled(!intBattOnStatusBar)
+                Toggle("Show Percentage", isOn: $showBatteryPercent)
+                    .disabled(!intBattOnStatusBar)
                 Picker("Remove Offline Device", selection: $disappearTime) {
                     Text("Never").tag(UInt32.max)
                     Text("after 20min").tag(20)
@@ -613,7 +609,7 @@ struct DisplayView: View {
                         Text("\(hideLevel)%").tag(hideLevel)
                     }
                 }
-                .disabled(!intBattOnStatusBar || (batteryPercent == "hide"))
+                .disabled(!intBattOnStatusBar || !showBatteryPercent)
             } header: {
                 Text("Menu Bar")
             }

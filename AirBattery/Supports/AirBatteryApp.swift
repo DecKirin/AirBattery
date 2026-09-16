@@ -55,7 +55,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     @AppStorage("nearCast") var nearCast = false
     @AppStorage("launchAtLogin") var launchAtLogin = false
     @AppStorage("intBattOnStatusBar") var intBattOnStatusBar = true
-    @AppStorage("batteryPercent") var batteryPercent = "outside"
     @AppStorage("alertSound") var alertSound = true
     @AppStorage("readBTHID") var readBTHID = true
     @AppStorage("hideLevel") var hideLevel = 100
@@ -108,6 +107,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     }
     
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // 老版本的百分比是三选一 (outside / inside / hidden), 现在只有开关了 —— 迁移一次:
+        // 除了原来就选了"隐藏"的, 其余都算开着. 位置不再是用户选的, 按系统版本和图标样式决定.
+        if ud.object(forKey: "showBatteryPercent") == nil {
+            let legacy = ud.string(forKey: "batteryPercent")
+            ud.set(legacy == nil || legacy != "hide", forKey: "showBatteryPercent")
+        }
+
         // default defaults (used if not set)
         ud.register(
             defaults: [
@@ -200,19 +206,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         //statusBarItem.menu = statusMenu
         if let button = statusBarItem.button {
             button.target = self
-            let ib = getPowerState()
-            let iconView = NSHostingView(rootView: mainBatteryView())
-            if ib.hasBattery && intBattOnStatusBar {
-                iconView.frame = NSRect(x: 0, y: 0, width: 42, height: 21.5)
-            } else {
-                iconView.frame = NSRect(x: 0, y: 0, width: 36, height: 21.5)
-            }
-            button.image = NSImage()
-            button.addSubview(iconView)
-            button.frame = iconView.frame
             button.action = #selector(togglePopover(_ :))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        // 图标由 StatusBarIcon 渲染成 template image 交给按钮, 宽度也由它自己撑开
+        StatusBarIcon.shared.start()
         statusBarItem.isVisible = !(showOn == "dock" || showOn == "none")
         NSApp.dockTile.contentView = NSHostingView(rootView: MultiBatteryView())
         NSApp.dockTile.display()

@@ -102,10 +102,10 @@ preflight() {
 
     info "$(xcodebuild -version | tr '\n' ' ')"
 
-    # AirBattery calls SwiftUI's glassEffect(), which exists only in the macOS 26 SDK. Catching
-    # that here turns a wall of compile errors into one sentence.
-    if ! xcodebuild -showsdks 2>/dev/null | grep -q "macosx26"; then
-        die "no macOS 26 SDK in the selected Xcode. AirBattery uses glassEffect(), which needs Xcode 26.
+    # AirBattery calls SwiftUI's glassEffect(), which first appeared in the macOS 26 SDK. Catching
+    # that here turns a wall of compile errors into one sentence. Any newer SDK (27, ...) is fine.
+    if ! xcodebuild -showsdks 2>/dev/null | grep -qE "macosx(2[6-9]|[3-9][0-9])"; then
+        die "no macOS 26+ SDK in the selected Xcode. AirBattery uses glassEffect(), which needs Xcode 26 or newer.
        Selected: $(xcode-select -p)
        Switch with: sudo xcode-select -s /Applications/Xcode-26.app"
     fi

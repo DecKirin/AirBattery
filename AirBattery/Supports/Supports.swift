@@ -5,6 +5,7 @@
 //  Created by apple on 2024/2/9.
 //
 import SwiftUI
+import AppKit
 import CryptoKit
 import SystemConfiguration
 import UserNotifications
@@ -864,6 +865,334 @@ func getDeviceIcon(_ d: Device) -> String {
         return "desktopcomputer"
     default:
         return "questionmark.circle.fill"
+    }
+}
+
+// MARK: - 原生电池图形 / Native battery shell
+
+
+/// 电池图形的绘制参数, 数值都量自系统自带的矢量资源.
+/// `classic` 是自己画的那一套; 有系统资源时优先用 `system` (见下面的扩展).
+struct NativeBattery {
+    var artwork: SystemBatteryArtwork? = nil    // 有值就用系统自带的图形画, 没有就自己画
+    let size: CGSize                    // 整体画布
+    let bodySize: CGSize                // 电池主体
+    let bodyCornerRadius: CGFloat       // 连续圆角 (continuous)
+    let borderWidth: CGFloat            // 描边, 画在主体内侧
+    let nubGap: CGFloat                 // 主体和电池头之间的空隙
+    let nubSize: CGSize                 // 电池头
+    let bodyOpacity: CGFloat
+    let nubOpacity: CGFloat
+    let levelSize: CGSize               // 电量条 (满电时)
+    let levelCornerRadius: CGFloat
+    let levelOffset: CGFloat            // 电量条距主体左边
+    let boltCanvasHeight: CGFloat       // 充电闪电的画布高度
+
+    /// 充电闪电 (batt_bolt / batt_plug) 的画布大小. 资源本身 11×14pt, 里面墨迹 8.25×12.25,
+    /// 但配套遮罩 (batt_bolt_mask) 的墨迹占满整个 14pt 画布 —— 画布给多大, 挖出来的黑边就有多高,
+    /// 所以画布不能按主体高度等比放大, 不然遮罩会从电池轮廓上下戳出去.
+    var boltSize: CGSize { CGSize(width: boltCanvasHeight * 11 / 14, height: boltCanvasHeight) }
+
+    /// 电量条宽度. 系统画的是连续变化的, 所以这里不做取整
+    func levelWidth(_ level: Int, minimum: CGFloat = 1) -> CGFloat {
+        return max(minimum, min(levelSize.width, CGFloat(level) / 100 * levelSize.width))
+    }
+
+    /// macOS 26 及以前的菜单栏电池: 主体 23×12pt, 1pt 内描边 50% 不透明度, 空 1pt 之后是
+    /// 1.5×4.235pt 的电池头 (60%), 电量条 19×8pt 圆角 1.5pt.
+    /// 整体 25.5×14pt —— 和以前的 batt_outline 图片资源一样大, 所以调用处的 offset 都不用改.
+    static let classic = NativeBattery(
+        size: CGSize(width: 25.5, height: 14),
+        bodySize: CGSize(width: 23, height: 12),
+        bodyCornerRadius: 3.345,
+        borderWidth: 1,
+        nubGap: 1,
+        nubSize: CGSize(width: 1.5, height: 4.235),
+        bodyOpacity: 0.5,
+        nubOpacity: 0.6,
+        levelSize: CGSize(width: 19, height: 8),
+        levelCornerRadius: 1.5,
+        levelOffset: 2,
+        boltCanvasHeight: 14        // 资源原始大小, 和改动之前完全一致
+    )
+}
+
+/// 系统自带的电池矢量图形 (Control Center 里那份)
+struct SystemBatteryArtwork {
+    let outline: NSImage
+    let cap: NSImage
+    /// 充电图标. 系统画法是 "先拿 mask 在填充上挖个洞, 再把本体画回洞里",
+    /// 挖的比本体大一圈, 所以本体周围会留一道底色的缝 —— 两张必须配套,
+    /// 少一张就整套都不要 (退回 app 自带的 PNG), 免得画出没有缝的怪东西.
+    let bolt: SystemChargingGlyph?
+    let plug: SystemChargingGlyph?
+    /// 大一号 (13×16) 的那套. macOS 26 的填充式电池用的是这套, 不是 11×14 ——
+    /// 在真菜单栏上量: 挖出来的洞宽 11.5pt、闪电上下各戳出主体 1pt,
+    /// 11×14 算出来是 10.0pt / 几乎不戳出, 13×16 是 11.8pt / 0.8pt, 只有大号对得上.
+    let boltLarge: SystemChargingGlyph?
+    let plugLarge: SystemChargingGlyph?
+
+    func glyph(bolt useBolt: Bool, large: Bool = false) -> SystemChargingGlyph? {
+        if large, let g = useBolt ? boltLarge : plugLarge { return g }
+        return useBolt ? bolt : plug
+    }
+}
+
+/// 一对配套的充电图标: 本体 + 挖洞用的遮罩
+struct SystemChargingGlyph {
+    let image: NSImage
+    let mask: NSImage
+}
+
+extension NativeBattery {
+    /// 跟着系统走: 直接读系统自己那份电池图形, 尺寸也按读到的算.
+    /// 这样以后 macOS 换了电池样式, 图标会自己跟着变, 不用再改代码.
+    /// 读不到 (Apple 改了资源名之类) 就是 nil, 调用方退回 `.classic` 自己画, 不会开天窗.
+    ///
+    /// 只有外壳是系统资源; 电量条系统是用代码画的, 没有对应资源, 那部分只能我们自己画 ——
+    /// 位置和大小可以从外壳尺寸推出来 (这套图形一直是 "1pt 描边 + 1pt 空隙", 23×12、19×10、iOS 的 25×13 都成立),
+    /// 只有圆角推不出来, 所以按量到的几档取值.
+    static let system: NativeBattery? = {
+        guard let bundle = Bundle(path: "/System/Library/CoreServices/ControlCenter.app"),
+              let outline = bundle.image(forResource: "battery-outline"),
+              let cap = bundle.image(forResource: "battery-cap"),
+              outline.size.width > 8, outline.size.height > 6 else { return nil }
+        let body = outline.size
+        let gap: CGFloat = 1
+        // 充电图标读不到不影响外壳, 所以单独取, 缺了就让调用方退回自带 PNG.
+        // 注意大号那套的遮罩叫 battery-bolt-mask-large (不是 -large-mask), 所以名字分开传
+        func pair(_ name: String, _ mask: String) -> SystemChargingGlyph? {
+            guard let image = bundle.image(forResource: name),
+                  let mask = bundle.image(forResource: mask) else { return nil }
+            return SystemChargingGlyph(image: image, mask: mask)
+        }
+        // 不透明度 (描边 50%, 电池头 60%) 已经烤进系统资源里了, 所以这里都填 1
+        return NativeBattery(
+            artwork: SystemBatteryArtwork(
+                outline: outline, cap: cap,
+                bolt: pair("battery-bolt", "battery-bolt-mask"),
+                plug: pair("battery-plug", "battery-plug-mask"),
+                boltLarge: pair("battery-bolt-large", "battery-bolt-mask-large"),
+                plugLarge: pair("battery-plug-large", "battery-plug-mask-large")),
+            size: CGSize(width: body.width + gap + cap.size.width, height: body.height + 2),
+            bodySize: body,
+            bodyCornerRadius: body.height * 0.279,   // Apple 两套矢量资源一致的比例: 23×12 → 3.345, 19×10 → 2.810
+            borderWidth: 1,
+            nubGap: gap,
+            nubSize: cap.size,
+            bodyOpacity: 1,
+            nubOpacity: 1,
+            levelSize: CGSize(width: body.width - 4, height: body.height - 4),
+            levelCornerRadius: NativeBattery.classic.levelCornerRadius * body.height / 12,
+            levelOffset: 2,
+            boltCanvasHeight: NativeBattery.classic.boltCanvasHeight * body.height / 12
+        )
+    }()
+
+    /// 菜单栏那颗电池优先用系统图形, 读不到再退回自己画的
+    static var menuBar: NativeBattery { system ?? classic }
+}
+
+// MARK: - macOS 26 起的填充式电池 / Filled battery (macOS 26+)
+
+/// macOS 26 开始系统菜单栏的电池换了画法:
+/// 电量不再是主体里面那根内缩的小条 (23×12 的壳里放 19×8), 而是**整块主体**按电量从左往右填满,
+/// 百分比和充电符号直接挖在填充上 —— Control Center 里对应的 SwiftUI 类型就叫
+/// `BatteryGlyph.OverlayWithPercentage` / `BatteryPercentageAndSymbol` / `BatteryFillShape`.
+///
+/// 26 以前还是老样子 (描边 + 内缩电量条 + 百分比写在电池外面), 所以按系统版本分开画:
+/// 两边都要和**当时**的系统菜单栏一致, 才谈得上"和系统一模一样".
+extension NativeBattery {
+    static let usesFilledLevel = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+        OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0))
+
+    /// 没充到的那一段的不透明度. 系统不是画一圈 1pt 的描边, 而是**整块主体**铺一层半透明的底,
+    /// 电量再不透明地盖在上面 —— 满电时两种画法看不出区别, 电量一掉下来就露馅了.
+    /// 在真菜单栏上量 (85% 充电中): 电量段 100%, 没充到那段 48%, 电池头 58%,
+    /// 对应资源里烤进去的 0.5 / 0.6
+    static let trackOpacity: CGFloat = 0.5
+
+    /// 填充式主体的圆角. 不能沿用 `bodyCornerRadius` —— 那个是从 26 以前的 battery-outline
+    /// 矢量资源量出来的 (12pt 高 → 3.345), 而 26 起的填充式主体是代码画的 (BatteryFillShape),
+    /// 圆角更大. 在 macOS 27.0 的真菜单栏上和 SwiftUI 的 RoundedRectangle 逐像素比对:
+    /// `.continuous` 4.0pt 的残差 0.05, 3.3pt 是 3.4 —— 就是 4.0, 按主体高度的 1/3 算.
+    var filledCornerRadius: CGFloat { bodySize.height / 3 }
+}
+
+/// macOS 26+ 的电池底: 整块主体铺一层半透明的底 + 电池头.
+/// 26 以前那套是 1pt 描边, 走 `NativeBatteryShell`
+struct NativeBatteryTrack: View {
+    var metrics: NativeBattery = .classic
+    var ink: Color = .primary
+
+    var body: some View {
+        HStack(spacing: metrics.nubGap) {
+            // 和 NativeBatteryFill 用同一个形状, 这样电量段和底的圆角严丝合缝
+            RoundedRectangle(cornerRadius: metrics.filledCornerRadius, style: .continuous)
+                .fill(ink)
+                .frame(width: metrics.bodySize.width, height: metrics.bodySize.height)
+                .opacity(NativeBattery.trackOpacity)
+            NativeBatteryNubView(metrics: metrics, ink: ink)
+        }
+        .frame(width: metrics.size.width, height: metrics.size.height)
+    }
+}
+
+/// 填充式电池里那组 "百分比 + 充电符号" 的排版.
+/// 数值是在 macOS 27.0 (26A428) 的真菜单栏上量的 —— 截图放大到 24px/pt 后逐像素量的连通域:
+/// 主体 23×12pt, 数字大写高 6.5pt, 小闪电 3.5×5pt, 整组在主体里居中.
+enum FilledBatteryGlyph {
+    /// 数字. 在 macOS 27.0 的真菜单栏上和系统那颗并排逐像素比对 (95%, 两位数, 没被压缩的那档):
+    /// 字号 9.4–10.6 × 字重 light/regular/medium 一起扫, 只有 regular 10.0 对得上 (残差 0.86,
+    /// 次好的 13.3), 包围盒、墨量 (121 vs 123px²) 和重心都一致; 早先的 9.7 数字还会整体高出 0.4pt.
+    /// 注意别拿 100% 充电那档去量 —— 三位数加闪电塞不下时系统会整组缩一点, 拿压缩后的尺寸当基准会整体偏小
+    static let fontSize: CGFloat = 10.0
+    /// 显示百分比时右边跟的那个充电符号. 系统用的还是 battery-bolt / battery-plug 那张图,
+    /// 只是缩到和数字差不多高: 量到墨迹 4.5×7.0pt, 长宽比 0.64, 和 11×14 资源的 0.66 对得上.
+    /// 这里给的是画布高度, 资源里墨迹占画布的 11.94/14, 所以 8.2 画出来墨高约 7.0
+    static let symbolCanvasHeight: CGFloat = 8.2
+    /// 读不到系统资源时退回 SF Symbol, 这时按字号给
+    static let symbolFallbackFontSize: CGFloat = 8
+    /// 字重. 在真菜单栏上和系统那颗并排量 (95%, 数字宽度和位置都已对齐): 系统数字的墨量是
+    /// 我们 .light 的 1.31 倍, 且多压出一行反锯齿 —— .regular / .light 的笔画比约 1.2, 再加上
+    /// 粗一档带来的那行边缘正好对上. 早先按 .medium 的 0.70 倍推成 .light, 是把 .medium 量粗了
+    static let weight: Font.Weight = .regular
+    /// 数字和符号之间的间距. 符号自带左右边距, 所以这里不用再留
+    static let symbolSpacing: CGFloat = 0
+    /// 三位数 (100%) 时整组缩放的比例, 见 BatteryView 里的 glyphScale
+    static let threeDigitScale: CGFloat = 0.87
+    /// 三位数 (100%) 时收一点字距, 帮着塞进 23pt 的主体里
+    static let tightening: CGFloat = -0.3
+}
+
+/// 充电图标 (闪电 / 插头).
+/// 系统的叠法是 "先拿 mask 在底下的填充上挖个洞, 再把本体画进洞里" —— 洞比本体大一圈,
+/// 所以本体周围会留一道底色的缝, 满电充电时那颗电池上的闪电就是这么来的.
+/// 必须放在 `.compositingGroup()` 里面, 不然 `.destinationOut` 会挖穿到菜单栏背景上去.
+struct NativeBatteryChargingGlyph: View {
+    var metrics: NativeBattery = .classic
+    /// true = 闪电 (在充电), false = 插头 (接着电但没在充)
+    var bolt: Bool
+    /// 默认跟电量条同色 —— 本体是画在填充里面的, 颜色不一样会看出来.
+    /// (这里不能用 `.blackWhite`: Supports.swift 也编进 widget 靶子, 那边没有这个色板)
+    var tint: Color = .primary
+    /// 用大一号 (13×16) 那套. macOS 26 的填充式电池是这么画的
+    var large: Bool = false
+
+    var body: some View {
+        if let glyph = metrics.artwork?.glyph(bolt: bolt, large: large) {
+            // 系统资源按它自己的原始大小画 —— 大号是 13×16, 长宽比和 11×14 不一样,
+            // 套 metrics.boltSize 会被压变形
+            let box = glyph.image.size
+            ZStack {
+                sized(Image(nsImage: glyph.mask), box).blendMode(.destinationOut)
+                sized(Image(nsImage: glyph.image).renderingMode(.template), box).foregroundColor(tint)
+            }
+            .frame(width: box.width, height: box.height)
+        } else {
+            // 读不到系统资源就用 app 自带的那份 (从旧版 Control Center 里抠出来的 11×14 PNG)
+            let box = metrics.boltSize
+            ZStack {
+                sized(Image("batt_" + name + "_mask"), box).blendMode(.destinationOut)
+                sized(Image("batt_" + name), box).foregroundColor(tint)
+            }
+            .frame(width: box.width, height: box.height)
+        }
+    }
+
+    private var name: String { bolt ? "bolt" : "plug" }
+
+    private func sized(_ image: Image, _ box: CGSize) -> some View {
+        image.resizable().scaledToFit().frame(width: box.width, height: box.height)
+    }
+}
+
+/// macOS 26+ 的电量填充: 整块主体按电量从左往右填满, 左边保留主体的圆角, 右边是直的.
+/// (26 以前是主体里面那根内缩的 19×8 小条, 走 `NativeBatteryLevelBar`)
+struct NativeBatteryFill: View {
+    var metrics: NativeBattery = .classic
+    var level: Int
+    var color: Color = .primary
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: metrics.filledCornerRadius, style: .continuous)
+            .fill(color)
+            .frame(width: metrics.bodySize.width, height: metrics.bodySize.height)
+            .mask(alignment: .leading) {
+                Rectangle().frame(width: metrics.filledWidth(level))
+            }
+    }
+}
+
+extension NativeBattery {
+    /// 填充式电池的电量宽度: 按主体整宽算, 不是按内缩的电量条算.
+    /// 电量再低也留一点, 不然看不出来是不是没电了还是没画出来.
+    ///
+    /// 系统把电量边界取整到**整点**, 不是连续的也不是按像素: 在真菜单栏上量了三档,
+    /// 95% → 22.0pt (0.95 × 23 = 21.85), 80% → 18.0 (18.4), 78% → 18.0 (17.94) ——
+    /// 按像素 floor / round 都对不上这三个, 只有 rounded() 到整点全对.
+    /// 我们按 4 倍出图再缩回去, 不取整的话 18.4 会落到 18.5, 边界比系统偏半个点
+    func filledWidth(_ level: Int, minimum: CGFloat = 2) -> CGFloat {
+        let raw = (CGFloat(level) / 100 * bodySize.width).rounded()
+        return max(minimum, min(bodySize.width, raw))
+    }
+}
+
+/// 电池头: 左边平、右边鼓出的叶形, 控制点按自身尺寸取比例 (两种尺寸的电池头是同一个形状缩放而来)
+struct NativeBatteryNub: Shape {
+    func path(in rect: CGRect) -> Path {
+        let tipX = rect.maxX
+        let shoulderX = rect.minX + rect.width * 0.21
+        let shoulderY = rect.height * 0.02
+        let waistY = rect.height * 0.18
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addCurve(to: CGPoint(x: tipX, y: rect.midY),
+                      control1: CGPoint(x: shoulderX, y: rect.minY + shoulderY),
+                      control2: CGPoint(x: tipX, y: rect.minY + waistY))
+        path.addCurve(to: CGPoint(x: rect.minX, y: rect.maxY),
+                      control1: CGPoint(x: tipX, y: rect.maxY - waistY),
+                      control2: CGPoint(x: shoulderX, y: rect.maxY - shoulderY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// 电池头. 单独拿出来, 因为百分比画在电池里面的时候主体是整块填满的, 只有电池头照旧
+struct NativeBatteryNubView: View {
+    var metrics: NativeBattery = .classic
+    var ink: Color = .primary
+
+    var body: some View {
+        if let artwork = metrics.artwork {
+            Image(nsImage: artwork.cap).renderingMode(.template).foregroundColor(ink)
+        } else {
+            NativeBatteryNub()
+                .fill(ink)
+                .frame(width: metrics.nubSize.width, height: metrics.nubSize.height)
+                .opacity(metrics.nubOpacity)
+        }
+    }
+}
+
+/// 空的电池外壳 (描边 + 电池头), 画法和系统菜单栏里的电池一致
+struct NativeBatteryShell: View {
+    var metrics: NativeBattery = .classic
+    var ink: Color = .primary
+
+    var body: some View {
+        HStack(spacing: metrics.nubGap) {
+            if let artwork = metrics.artwork {
+                Image(nsImage: artwork.outline).renderingMode(.template).foregroundColor(ink)
+            } else {
+                RoundedRectangle(cornerRadius: metrics.bodyCornerRadius, style: .continuous)
+                    .strokeBorder(ink, lineWidth: metrics.borderWidth)
+                    .frame(width: metrics.bodySize.width, height: metrics.bodySize.height)
+                    .opacity(metrics.bodyOpacity)
+            }
+            NativeBatteryNubView(metrics: metrics, ink: ink)
+        }
+        .frame(width: metrics.size.width, height: metrics.size.height)
     }
 }
 
