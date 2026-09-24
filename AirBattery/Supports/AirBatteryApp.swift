@@ -336,12 +336,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     }*/
     
     @objc func togglePopover(_ sender: Any?) {
+        // Consumed up front so it never leaks into a later click, whichever branch runs.
+        let closedByThisClick = deviceDropdownWindow.consumeStatusItemClickClose()
         if let event = NSApp.currentEvent,
            event.type == .rightMouseUp || (event.type == .leftMouseUp && event.modifierFlags.contains(.control)) {
             showStatusBarMenu()
             return
         }
-        if deviceDropdownWindow.isVisible {
+        // `isVisible` alone isn't enough: losing key focus to the status bar window already hid the
+        // panel on mouse-down, so the click that closed it has to be recognised as a close here.
+        if deviceDropdownWindow.isVisible || closedByThisClick {
             deviceDropdownWindow.dismiss()
         } else {
             presentDeviceDropdown(fromDock: false)
@@ -570,6 +574,15 @@ class NNSWindow: NSWindow {
 class AutoHideWindow: NSPanel {
     private var dismissMonitors: [Any] = []
 
+    /// Set on mouse-*down* when a click lands on the status item while the panel is open.
+    ///
+    /// That click is the status item's own toggle, but AppKit makes the status bar's window key on
+    /// mouse-down, which resigns this panel's focus and hides it (`resignKey`) before the button's
+    /// action fires on mouse-*up*. `togglePopover` would then see an already-hidden panel and
+    /// reopen the one the click just closed. Recording the intent while the click is still going
+    /// down is what lets the toggle close it instead.
+    private var closingFromStatusItemClick = false
+
     override var canBecomeKey: Bool {
         return true
     }
@@ -579,26 +592,30 @@ class AutoHideWindow: NSPanel {
         dismiss()
     }
 
+    /// Whether the click being handled right now is the one that closed the panel. Reading it also
+    /// clears it, so every status item click starts from a clean state.
+    func consumeStatusItemClickClose() -> Bool {
+        defer { closingFromStatusItemClick = false }
+        return closingFromStatusItemClick
+    }
+
     /// Starts watching for clicks outside the panel (and for Escape). Safe to call repeatedly.
     func installDismissMonitors() {
         removeDismissMonitors()
+        closingFromStatusItemClick = false
         let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
 
         // Clicks in any other application.
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: clicks, handler: { [weak self] _ in
-            self?.dismiss()
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: clicks, handler: { [weak self] event in
+            self?.handleClickOutside(event)
         }) {
             dismissMonitors.append(global)
         }
 
-        // Clicks elsewhere in AirBattery itself. Clicks landing in the panel keep it open, and
-        // clicks on the status item are left to `togglePopover` — dismissing here too would let it
-        // immediately reopen the panel it just closed.
+        // Clicks elsewhere in AirBattery itself. Clicks landing in the panel keep it open.
         if let local = NSEvent.addLocalMonitorForEvents(matching: clicks, handler: { [weak self] event in
             guard let self else { return event }
-            if event.window !== self && event.window !== statusBarItem?.button?.window {
-                self.dismiss()
-            }
+            if event.window !== self { self.handleClickOutside(event) }
             return event
         }) {
             dismissMonitors.append(local)
@@ -613,6 +630,27 @@ class AutoHideWindow: NSPanel {
         }) {
             dismissMonitors.append(escape)
         }
+    }
+
+    /// Clicks on the status item are left to `togglePopover` — dismissing here as well would let it
+    /// immediately reopen the panel it just closed — so such a click is only *recorded* as a close.
+    /// Anything else outside the panel dismisses it as usual.
+    private func handleClickOutside(_ event: NSEvent) {
+        if clickHitsStatusItem(event) {
+            closingFromStatusItemClick = true
+            return
+        }
+        dismiss()
+    }
+
+    /// Window identity covers clicks AppKit delivers to AirBattery; the geometric test covers the
+    /// global monitor, whose events carry no window.
+    private func clickHitsStatusItem(_ event: NSEvent) -> Bool {
+        guard let item = statusBarItem, item.isVisible,
+              let button = item.button, let buttonWindow = button.window else { return false }
+        if event.window === buttonWindow { return true }
+        let frameOnScreen = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        return frameOnScreen.contains(NSEvent.mouseLocation)
     }
 
     private func removeDismissMonitors() {
