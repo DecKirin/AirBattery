@@ -10,6 +10,8 @@ import CryptoKit
 
 final class BridgeClientStore {
     static let shared = BridgeClientStore(fileURL: defaultURL)
+    /// Registration needs no token, so this keeps a misbehaving local process from growing the file forever.
+    static let maxClients = 64
 
     static var defaultURL: URL {
         fd.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -72,6 +74,10 @@ final class BridgeClientStore {
             clients[index].lastSeen = now
             result = clients[index]
         } else {
+            guard clients.count < Self.maxClients else {
+                lock.unlock()
+                throw BridgeError.tooManyClients
+            }
             result = BridgeClient(id: Self.makeClientID(), name: name, bundleID: bundleID,
                                   status: mode == .allowlist ? .pending : .active,
                                   tokenHash: tokenHash, createdAt: now, lastSeen: now)

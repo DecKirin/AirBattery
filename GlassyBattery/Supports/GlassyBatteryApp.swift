@@ -127,6 +127,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
                 "widgetInterval": 0,
                 "hideLevel": 90,
                 "nearCast": false,
+                "batteryBridge": false,
+                "bridgeMode": BridgeMode.blocklist.rawValue,
                 "readBTHID": true,
                 "whitelistMode": false,
                 "dropdownTheme": DropdownTheme.adaptive.rawValue,
@@ -182,6 +184,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         print("⚙️ Launch GlassyBattery at login = \(launchAtLogin)")
         print("⚙️ Icon mode = \(showOn)")
         if ncGroupID != "" { if nearCast { netcastService.resume() } }
+        if ud.bool(forKey: "batteryBridge") { BatteryBridge.shared.start() }
         if let result = process(path: "/usr/sbin/system_profiler", arguments: ["SPBluetoothDataType", "-json"]) { SPBluetoothDataModel.shared.data = result }
         
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
@@ -257,6 +260,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     
     func applicationWillTerminate(_ notification: Notification) {
         if let act = keepAliveActivity { ProcessInfo.processInfo.endActivity(act) }
+        // The bridge's own stop() is async and wouldn't run before exit; clients also check the pid in it.
+        try? fd.removeItem(at: BatteryBridge.defaultDiscoveryURL)
 
         _ = process(path: "/usr/bin/killall", arguments: ["idevicesyslog"])
     }

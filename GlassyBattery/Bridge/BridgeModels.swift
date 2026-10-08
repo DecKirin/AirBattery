@@ -68,6 +68,21 @@ struct BridgeError: Error, Equatable, Codable {
     static let tooManyDevices = BridgeError(status: 422, code: "too_many_devices",
                                             message: "A client can register at most \(BridgeDevices.maxPerClient) devices")
 
+    static let tooManyClients = BridgeError(status: 429, code: "too_many_clients",
+                                            message: "BatteryBridge has reached its limit of \(BridgeClientStore.maxClients) clients")
+    static let routeNotFound = BridgeError(status: 404, code: "no_such_route", message: "Unknown endpoint")
+    static let methodNotAllowed = BridgeError(status: 405, code: "method_not_allowed", message: "Method not allowed on this endpoint")
+    static let forbiddenHost = BridgeError(status: 403, code: "forbidden_host", message: "Host must be 127.0.0.1 or localhost")
+    static let forbiddenOrigin = BridgeError(status: 403, code: "forbidden_origin", message: "Browser requests are not accepted")
+    static let unsupportedMediaType = BridgeError(status: 415, code: "unsupported_media_type", message: "Request bodies must be application/json")
+    static let lengthRequired = BridgeError(status: 411, code: "length_required", message: "Send a Content-Length; chunked bodies are not supported")
+    static let payloadTooLarge = BridgeError(status: 413, code: "payload_too_large", message: "Request is too large")
+    static let malformedRequest = BridgeError(status: 400, code: "malformed_request", message: "Not a valid HTTP/1.1 request")
+
+    static func invalidBody(_ detail: String) -> BridgeError {
+        BridgeError(status: 422, code: "invalid_body", message: detail)
+    }
+
     static func nameTaken(_ name: String) -> BridgeError {
         BridgeError(status: 409, code: "name_taken", message: "\"\(name)\" is already used by another device")
     }
