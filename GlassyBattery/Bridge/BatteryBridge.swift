@@ -248,7 +248,7 @@ final class BatteryBridge: ObservableObject {
         do {
             try fd.createDirectory(at: discoveryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
             try encoder.encode(discovery).write(to: discoveryURL, options: .atomic)
         } catch {
             print("⚠️ BatteryBridge: writing \(discoveryURL.lastPathComponent) failed: \(error)")

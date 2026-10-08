@@ -41,6 +41,7 @@ enum SettingsPane: String, Hashable, Identifiable, CaseIterable {
     case display
     case nearbility
     case nearcast
+    case batteryBridge
     case widget
     case blocklist
     case debug
@@ -53,6 +54,7 @@ enum SettingsPane: String, Hashable, Identifiable, CaseIterable {
         case .display: "Menu Bar & Dock"
         case .nearbility: "Nearbility"
         case .nearcast: "Nearcast"
+        case .batteryBridge: "BatteryBridge"
         case .widget: "Widget"
         case .blocklist: "Blocklist"
         case .debug: "Debug"
@@ -65,6 +67,7 @@ enum SettingsPane: String, Hashable, Identifiable, CaseIterable {
         case .display: "dock"
         case .nearbility: "nearbility"
         case .nearcast: "nearcast"
+        case .batteryBridge: "bridge"
         case .widget: "widget"
         case .blocklist: "blacklist"
         case .debug: "debug"
@@ -76,6 +79,20 @@ enum SettingsPane: String, Hashable, Identifiable, CaseIterable {
         if includeDebug { panes.append(.debug) }
         return panes
     }
+
+    /// Set by `openSettings(pane:)` for a window that isn't open yet; taken by `SettingsView` on appear.
+    fileprivate static var pendingSelection: SettingsPane?
+}
+
+extension Notification.Name {
+    fileprivate static let showSettingsPane = Notification.Name("GlassyBatteryShowSettingsPane")
+}
+
+/// Opens the settings window on a given pane, e.g. from a notification.
+func openSettings(pane: SettingsPane) {
+    SettingsPane.pendingSelection = pane
+    NotificationCenter.default.post(name: .showSettingsPane, object: pane)
+    openGlassyBatterySettingsWindow()
 }
 
 @ViewBuilder
@@ -85,6 +102,7 @@ private func settingsPaneDetail(for pane: SettingsPane, selection: Binding<Setti
     case .display: DisplayView()
     case .nearbility: NearbilityView()
     case .nearcast: NearcastView()
+    case .batteryBridge: BatteryBridgeView()
     case .widget: WidgetView()
     case .blocklist: BlacklistView()
     case .debug: DebugView(selectedPane: selection)
@@ -138,6 +156,14 @@ struct SettingsView: View {
                     selection = .general
                 }
             }
+            .onAppear { takePendingSelection() }
+            .onReceive(NotificationCenter.default.publisher(for: .showSettingsPane)) { _ in takePendingSelection() }
+    }
+
+    private func takePendingSelection() {
+        guard let pane = SettingsPane.pendingSelection else { return }
+        selection = pane
+        SettingsPane.pendingSelection = nil
     }
 }
 

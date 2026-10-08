@@ -78,7 +78,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     let nc = NSWorkspace.shared.notificationCenter
     
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-        
+        if BridgeNotifications.handle(response) {
+            completionHandler()
+            return
+        }
         if response.actionIdentifier == "DELAY_30_MIN" {
             let deviceName = response.notification.request.content.userInfo["customInfo"] as? String ?? ""
             lowPowerNoteDelay[deviceName] = Date().timeIntervalSince1970 + 1800
@@ -184,6 +187,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         print("⚙️ Launch GlassyBattery at login = \(launchAtLogin)")
         print("⚙️ Icon mode = \(showOn)")
         if ncGroupID != "" { if nearCast { netcastService.resume() } }
+        BridgeNotifications.registerCategory()
+        BatteryBridge.shared.router.onPendingClient = { BridgeNotifications.requestApproval(for: $0) }
         if ud.bool(forKey: "batteryBridge") { BatteryBridge.shared.start() }
         if let result = process(path: "/usr/sbin/system_profiler", arguments: ["SPBluetoothDataType", "-json"]) { SPBluetoothDataModel.shared.data = result }
         
