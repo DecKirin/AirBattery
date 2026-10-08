@@ -182,6 +182,7 @@
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		184ADED22DDB2B37004791F0 /* abt */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = abt; sourceTree = "<group>"; };
+		1BB0B0A12EA0000000000001 /* Bridge */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Bridge; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -269,6 +270,7 @@
 		1841D44D2AA6071C0022A1BE /* GlassyBattery */ = {
 			isa = PBXGroup;
 			children = (
+				1BB0B0A12EA0000000000001 /* Bridge */,
 				184ADEFF2DDB6C9F004791F0 /* Supports */,
 				18F615F72B763FC900873AA4 /* ViewModel */,
 				18F615F62B763FAB00873AA4 /* BatteryInfo */,
@@ -396,6 +398,9 @@
 			);
 			dependencies = (
 				18892A982B81F8330017377E /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				1BB0B0A12EA0000000000001 /* Bridge */,
 			);
 			name = GlassyBattery;
 			packageProductDependencies = (

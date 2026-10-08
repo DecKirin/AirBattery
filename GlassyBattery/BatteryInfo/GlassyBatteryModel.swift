@@ -69,7 +69,20 @@ class GlassyBatteryModel {
             Devices.append(device)
         }
     }
-    
+
+    /// Every stored device, including hidden, expired and blocked ones.
+    static func snapshot() -> [Device] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Devices
+    }
+
+    static func removeDevices(where shouldRemove: (Device) -> Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        Devices.removeAll(where: shouldRemove)
+    }
+
     static func hideDevice(_ name: String) {
         lock.lock()
         defer { lock.unlock() }

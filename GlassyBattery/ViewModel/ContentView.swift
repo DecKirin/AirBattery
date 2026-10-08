@@ -227,7 +227,7 @@ struct MultiBatteryView: View {
         }
         .onReceive(nearCastTimer) {_ in
             if nearCast && ncGroupID != ""{
-                var allDevices = GlassyBatteryModel.getAll()
+                var allDevices = BridgeDevices.forNearcast(GlassyBatteryModel.getAll())
                 allDevices.insert(ib2ab(InternalBattery.status), at: 0)
                 do {
                     let jsonData = try JSONEncoder().encode(allDevices)
