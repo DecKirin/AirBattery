@@ -10,6 +10,7 @@ do {
     try runHTTPTests()
     try runRouterTests()
     try runServerTests()
+    try runStreamTests()
 } catch {
     failures += 1
     print("✘ unexpected error: \(error)")

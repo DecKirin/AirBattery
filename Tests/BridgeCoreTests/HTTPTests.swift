@@ -9,20 +9,32 @@ import Foundation
 
 // MARK: Helpers
 
-/// A device list in memory, standing in for `GlassyBatteryModel`.
+/// A device list in memory, standing in for `GlassyBatteryModel`. Locked: the bridge's queue and
+/// the test thread both use it.
 final class MemoryDevices {
-    var list: [Device] = []
+    private let lock = NSLock()
+    private var storage: [Device] = []
+    var list: [Device] {
+        get { lock.lock(); defer { lock.unlock() }; return storage }
+        set { lock.lock(); storage = newValue; lock.unlock() }
+    }
     var deviceList: BridgeRouter.DeviceList {
         BridgeRouter.DeviceList(
             snapshot: { self.list },
             update: { device in
-                if let index = self.list.firstIndex(where: { $0.deviceName == device.deviceName }) {
-                    self.list[index] = device
+                self.lock.lock()
+                defer { self.lock.unlock() }
+                if let index = self.storage.firstIndex(where: { $0.deviceName == device.deviceName }) {
+                    self.storage[index] = device
                 } else {
-                    self.list.append(device)
+                    self.storage.append(device)
                 }
             },
-            remove: { shouldRemove in self.list.removeAll(where: shouldRemove) })
+            remove: { shouldRemove in
+                self.lock.lock()
+                self.storage.removeAll(where: shouldRemove)
+                self.lock.unlock()
+            })
     }
 }
 
@@ -166,7 +178,9 @@ func runServerTests() throws {
         return
     }
     check(base == "http://127.0.0.1:\(port)" && info["pid"] as? Int32 == ProcessInfo.processInfo.processIdentifier, "discovery file")
-    check(waitUntil({ bridge.state == .listening(port: UInt16(port)) }), "state is published")
+    let streamPort = info["streamPort"] as? Int ?? 0
+    check(info["streamURL"] as? String == "ws://127.0.0.1:\(streamPort)" && streamPort != 0, "discovery file names the stream")
+    check(waitUntil({ bridge.state == .listening(port: UInt16(port), streamPort: UInt16(streamPort)) }), "state is published")
 
     check(curl(["\(base)/v1/health"]).status == 200, "health over the wire")
     let reg = curl(["-H", "Content-Type: application/json", "-d", #"{"name":"curl"}"#, "\(base)/v1/register"])

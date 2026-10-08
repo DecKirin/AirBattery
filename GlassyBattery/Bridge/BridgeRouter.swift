@@ -69,7 +69,7 @@ final class BridgeRouter {
         case "me" where rest.count == 1:
             guard method == "GET" else { throw BridgeError.methodNotAllowed }
             let client = try authenticate(request)
-            return .json(200, Me(client: ClientInfo(client), devices: devices(of: client.id)))
+            return .json(200, Me(client: BridgeClientInfo(client), devices: devices(of: client.id)))
         case "devices:batch" where rest.count == 1:
             guard method == "POST" else { throw BridgeError.methodNotAllowed }
             return try batch(request, client: authenticate(request))
@@ -101,14 +101,29 @@ final class BridgeRouter {
             throw BridgeError.invalid("id", "doesn't match the URL")
         }
         payload.id = localID
-        let device = try BridgeDevices.make(from: payload.payload, clientID: client.id, existing: devices.snapshot(), now: now())
+        return .json(200, ["device": try upsert(payload.payload, for: client)])
+    }
+
+    private func batch(_ request: BridgeHTTPRequest, client: BridgeClient) throws -> BridgeHTTPResponse {
+        let payloads = try decode([BridgeDevicePayload].self, from: request)
+        return .json(200, ["devices": try upsert(batch: payloads, for: client)])
+    }
+
+    private func delete(localID: String, client: BridgeClient) throws -> BridgeHTTPResponse {
+        try removeDevice(localID: localID, for: client)
+        return .noContent
+    }
+
+    // MARK: Device operations (shared with the stream)
+
+    func upsert(_ payload: BridgeDevicePayload, for client: BridgeClient) throws -> BridgeDeviceInfo {
+        let device = try BridgeDevices.make(from: payload, clientID: client.id, existing: devices.snapshot(), now: now())
         devices.update(device)
-        return .json(200, ["device": DeviceInfo(device)])
+        return BridgeDeviceInfo(device)
     }
 
     /// All or nothing: every device is validated, against the stored ones and each other, before any is stored.
-    private func batch(_ request: BridgeHTTPRequest, client: BridgeClient) throws -> BridgeHTTPResponse {
-        let payloads = try decode([BridgeDevicePayload].self, from: request)
+    func upsert(batch payloads: [BridgeDevicePayload], for client: BridgeClient) throws -> [BridgeDeviceInfo] {
         guard payloads.count <= Self.maxBatch else { throw BridgeError.invalid("batch", "at most \(Self.maxBatch) devices") }
         var working = devices.snapshot()
         var accepted: [Device] = []
@@ -120,14 +135,13 @@ final class BridgeRouter {
             accepted.append(device)
         }
         accepted.forEach(devices.update)
-        return .json(200, ["devices": accepted.map(DeviceInfo.init)])
+        return accepted.map(BridgeDeviceInfo.init)
     }
 
-    private func delete(localID: String, client: BridgeClient) throws -> BridgeHTTPResponse {
+    func removeDevice(localID: String, for client: BridgeClient) throws {
         let id = BridgeDevices.deviceID(client: client.id, localID: localID)
         guard devices.snapshot().contains(where: { $0.deviceID == id }) else { throw BridgeError.notFound }
         devices.remove { $0.deviceID == id }
-        return .noContent
     }
 
     // MARK: Helpers
@@ -137,17 +151,23 @@ final class BridgeRouter {
     /// - any Origin header is refused, since browsers send one and native clients don't;
     /// - bodies must be JSON, which a page can't send cross-origin without a (refused) preflight.
     private func checkCaller(_ request: BridgeHTTPRequest) throws {
-        guard let host = request.headers["host"]?.lowercased() else { throw BridgeError.forbiddenHost }
-        let allowed = ["127.0.0.1", "localhost", "[::1]"]
-        guard allowed.contains(host) || allowed.contains(where: { host == "\($0):\(port)" }) else {
-            throw BridgeError.forbiddenHost
-        }
-        if request.headers["origin"] != nil { throw BridgeError.forbiddenOrigin }
+        try Self.checkLocal(headers: request.headers, port: port)
         if !request.body.isEmpty || request.method == "POST" || request.method == "PUT" {
             guard request.headers["content-type"]?.lowercased().hasPrefix("application/json") == true else {
                 throw BridgeError.unsupportedMediaType
             }
         }
+    }
+
+    /// The Host and Origin half of `checkCaller`, shared with the stream's handshake.
+    /// `headers` must have lowercased names.
+    static func checkLocal(headers: [String: String], port: UInt16) throws {
+        guard let host = headers["host"]?.lowercased() else { throw BridgeError.forbiddenHost }
+        let allowed = ["127.0.0.1", "localhost", "[::1]"]
+        guard allowed.contains(host) || allowed.contains(where: { host == "\($0):\(port)" }) else {
+            throw BridgeError.forbiddenHost
+        }
+        if headers["origin"] != nil { throw BridgeError.forbiddenOrigin }
     }
 
     private func authenticate(_ request: BridgeHTTPRequest) throws -> BridgeClient {
@@ -168,8 +188,8 @@ final class BridgeRouter {
         }
     }
 
-    private func devices(of clientID: String) -> [DeviceInfo] {
-        devices.snapshot().filter { BridgeDevices.clientID(of: $0.deviceID) == clientID }.map(DeviceInfo.init)
+    private func devices(of clientID: String) -> [BridgeDeviceInfo] {
+        devices.snapshot().filter { BridgeDevices.clientID(of: $0.deviceID) == clientID }.map(BridgeDeviceInfo.init)
     }
 }
 
@@ -188,12 +208,12 @@ private struct Registered: Encodable {
 }
 
 private struct Me: Encodable {
-    let client: ClientInfo
-    let devices: [DeviceInfo]
+    let client: BridgeClientInfo
+    let devices: [BridgeDeviceInfo]
 }
 
 /// A client as the API shows it: no token hash.
-private struct ClientInfo: Encodable {
+struct BridgeClientInfo: Encodable {
     let id: String
     let name: String
     let bundleID: String?
@@ -210,7 +230,7 @@ private struct ClientInfo: Encodable {
 }
 
 /// A stored device as the API shows it, with the client's own ID rather than the namespaced one.
-private struct DeviceInfo: Encodable {
+struct BridgeDeviceInfo: Encodable {
     let id: String
     let name: String
     let type: String
