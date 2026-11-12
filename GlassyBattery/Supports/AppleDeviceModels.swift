@@ -245,6 +245,25 @@ let appleDeviceModelNames: [String: String] = [
     "Watch7,18": "Apple Watch Series 11 46mm case",
     "Watch7,19": "Apple Watch Series 11 42mm case (GPS+Celllular)",
     "Watch7,20": "Apple Watch Series 11 46mm case (GPS+Celllular)",
+
+    // Newer than the source list (fall 2026): names from Xcode 27.2's device_traits.db, worded as
+    // the list words them. Watch case sizes come from the screen subtype each shares with the
+    // Series 11 (446 = 42mm, 496 = 46mm).
+    "iPhone19,2": "iPhone 18 Pro",
+    "iPhone19,3": "iPhone 18 Pro Max",
+    "iPhone19,4": "iPhone Duo",
+    "iPhone19,7": "iPhone 18 Pro Max",
+    "iPad17,1": "iPad Pro 11-inch (M5)",
+    "iPad17,2": "iPad Pro 11-inch (M5)",
+    "iPad17,3": "iPad Pro 13-inch (M5)",
+    "iPad17,4": "iPad Pro 13-inch (M5)",
+    "iPad19,1": "iPad mini (A20 Pro)",
+    "iPad19,2": "iPad mini (A20 Pro)",
+    "Watch8,1": "Apple Watch Ultra 4",
+    "Watch8,2": "Apple Watch Series 12 42mm case (GPS)",
+    "Watch8,3": "Apple Watch Series 12 46mm case (GPS)",
+    "Watch8,4": "Apple Watch Series 12 42mm case (GPS+Cellular)",
+    "Watch8,5": "Apple Watch Series 12 46mm case (GPS+Cellular)",
 ]
 
 /// Case-insensitive index, built once, so an identifier that reaches us in a different case
