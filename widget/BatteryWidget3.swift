@@ -84,7 +84,7 @@ struct SmallWidgetView2: View {
                                         .foregroundColor(Color(getPowerColor(item)))
                                         .rotationEffect(Angle(degrees: 270.0))
                                     
-                                    Image(getDeviceIcon(item))
+                                    deviceIconImage(item)
                                         .resizable()
                                         .aspectRatio(contentMode: .fit)
                                         .frame(width: 26, height: 26, alignment: .center)
@@ -133,7 +133,7 @@ struct SmallWidgetView2: View {
                                         .foregroundColor(Color(getPowerColor(item)))
                                         .rotationEffect(Angle(degrees: 270.0))
                                     
-                                    Image(getDeviceIcon(item))
+                                    deviceIconImage(item)
                                         .resizable()
                                         .aspectRatio(contentMode: .fit)
                                         .frame(width: 26, height: 26, alignment: .center)
@@ -218,7 +218,7 @@ struct doubleBatteryWidgetEntryView2: View {
                                             .foregroundColor(Color(getPowerColor(item)))
                                             .rotationEffect(Angle(degrees: 270.0))
                                         
-                                        Image(getDeviceIcon(item))
+                                        deviceIconImage(item)
                                             .resizable()
                                             .aspectRatio(contentMode: .fit)
                                             .frame(width: 26, height: 26, alignment: .center)
@@ -268,7 +268,7 @@ struct doubleBatteryWidgetEntryView2: View {
                                             .foregroundColor(Color(getPowerColor(item)))
                                             .rotationEffect(Angle(degrees: 270.0))
                                         
-                                        Image(getDeviceIcon(item))
+                                        deviceIconImage(item)
                                             .resizable()
                                             .aspectRatio(contentMode: .fit)
                                             .frame(width: 26, height: 26, alignment: .center)

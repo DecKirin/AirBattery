@@ -36,7 +36,7 @@ class MultipeerService: ObservableObject {
                 if message.id != self.ncGroupID.prefix(15) { return }
                 switch message.command {
                 case "resend":
-                    var allDevices = GlassyBatteryModel.getAll()
+                    var allDevices = BridgeDevices.forNearcast(GlassyBatteryModel.getAll())
                     allDevices.insert(ib2ab(InternalBattery.status), at: 0)
                     do {
                         let jsonData = try JSONEncoder().encode(allDevices)

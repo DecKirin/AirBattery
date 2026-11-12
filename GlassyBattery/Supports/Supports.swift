@@ -664,9 +664,14 @@ func getDeviceIcon(_ d: Device) -> String {
         return "square.dashed"
     case "general_bt":
         return "bluetooth.fill"
+    case "generic":
+        // A device of no particular kind: what BatteryBridge falls back to for a type it doesn't know.
+        return "cube.fill"
     case "MobilePhone":
         return "iphone.gen1"
     case "iPhone":
+        // The folding iPhone Duo; its icon is SF Symbols' `iphone.duo`, bundled as an asset.
+        if d.deviceModel == "iPhone19,4" { return "iphone.duo" }
         if let model = d.deviceModel, let m = model.components(separatedBy: ",").first, let id = m.components(separatedBy: "e").last {
             if (Int(id) ?? 0 < 10) || ["iPhone12,8", "iPhone14,6"].contains(model) { return "iphone.gen1" }
             if (Int(id) ?? 0 < 14) { return "iphone.gen2" }
@@ -906,6 +911,69 @@ func getDeviceIcon(_ d: Device) -> String {
     default:
         return "questionmark.circle.fill"
     }
+}
+
+/// Whether this system can draw each SF Symbol name seen in a `deviceIcon`, looked up once per name.
+private let deviceSymbolAvailability = NSCache<NSString, NSNumber>()
+
+/// The SF Symbol a BatteryBridge client chose for the device, if this system has it. A name this
+/// macOS doesn't know (a typo, or a symbol newer than this system, perhaps from a newer Mac over
+/// Nearcast) gives nil, and the device keeps the icon its type gets.
+func customDeviceSymbol(_ d: Device) -> String? {
+    guard let name = d.deviceIcon, !name.isEmpty else { return nil }
+    if let known = deviceSymbolAvailability.object(forKey: name as NSString) { return known.boolValue ? name : nil }
+    let available = NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
+    deviceSymbolAvailability.setObject(NSNumber(value: available), forKey: name as NSString)
+    return available ? name : nil
+}
+
+/// Uploaded icons, keyed by file and modification date, so a replaced icon is read again.
+private let customDeviceIcons = NSCache<NSString, NSImage>()
+
+/// The icon the device's BatteryBridge client uploaded (`deviceCustomIcon`), read from
+/// `GlassyBatteryModel.bridgeIconsURL()/<clientID>/<name>.<pdf|svg|png>`. Nil when there's no such
+/// file here — as for a device from another Mac over Nearcast, whose client and icons live there.
+/// A template: only its shape counts, so it takes the same colours as the bundled icons.
+func customDeviceIcon(_ d: Device, in directory: URL = GlassyBatteryModel.bridgeIconsURL()) -> NSImage? {
+    // The name and the client ID become a path, and a Nearcast peer can send anything: check both.
+    guard let name = d.deviceCustomIcon,
+          name.range(of: "^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$", options: .regularExpression) != nil,
+          d.deviceID.hasPrefix("bridge:") else { return nil }
+    let rest = d.deviceID.dropFirst("bridge:".count)
+    guard let colon = rest.firstIndex(of: ":") else { return nil }
+    let clientID = String(rest[..<colon])
+    guard clientID.range(of: "^[A-Za-z0-9]{1,64}$", options: .regularExpression) != nil else { return nil }
+
+    let folder = directory.appendingPathComponent(clientID, isDirectory: true)
+    for format in ["pdf", "svg", "png"] {
+        let url = folder.appendingPathComponent("\(name).\(format)")
+        guard let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        else { continue }
+        let key = "\(url.path)|\(modified.timeIntervalSince1970)" as NSString
+        if let cached = customDeviceIcons.object(forKey: key) { return cached }
+        guard let image = NSImage(contentsOf: url), image.isValid else { return nil }
+        image.isTemplate = true
+        customDeviceIcons.setObject(image, forKey: key)
+        return image
+    }
+    return nil
+}
+
+/// A device's icon, the first of: the icon its BatteryBridge client uploaded, the SF Symbol it
+/// chose, the bundled icon `getDeviceIcon` picks for its type. Each one a Mac can't draw falls
+/// through to the next. Symbols are hierarchical, so their secondary layers are tinted like the
+/// bundled icons' are.
+func deviceIconImage(_ d: Device) -> Image {
+    if let image = customDeviceIcon(d) { return Image(nsImage: image).renderingMode(.template) }
+    if let symbol = customDeviceSymbol(d) { return Image(systemName: symbol).symbolRenderingMode(.hierarchical) }
+    return Image(getDeviceIcon(d))
+}
+
+/// `deviceIconImage` for AppKit (the pinned menu bar items).
+func deviceIconNSImage(_ d: Device) -> NSImage? {
+    if let image = customDeviceIcon(d) { return image }
+    if let symbol = customDeviceSymbol(d) { return NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+    return NSImage(named: getDeviceIcon(d))
 }
 
 // MARK: - 原生电池图形 / Native battery shell

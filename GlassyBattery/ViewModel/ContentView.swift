@@ -128,7 +128,7 @@ struct MultiBatteryView: View {
                                             .offset(x:-0.2, y:1.5)
                                         
                                     } else {
-                                        Image(getDeviceIcon(item))
+                                        deviceIconImage(item)
                                             .resizable()
                                             .aspectRatio(contentMode: .fit)
                                             .colorScheme(darkMode ? .dark : .light)
@@ -172,7 +172,7 @@ struct MultiBatteryView: View {
                                             .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
                                             .foregroundColor(Color(getPowerColor(item)))
                                     }.rotationEffect(Angle(degrees: 135))
-                                    Image(getDeviceIcon(item))
+                                    deviceIconImage(item)
                                         .resizable()
                                         .aspectRatio(contentMode: .fit)
                                         .colorScheme(darkMode ? .dark : .light)
@@ -227,7 +227,7 @@ struct MultiBatteryView: View {
         }
         .onReceive(nearCastTimer) {_ in
             if nearCast && ncGroupID != ""{
-                var allDevices = GlassyBatteryModel.getAll()
+                var allDevices = BridgeDevices.forNearcast(GlassyBatteryModel.getAll())
                 allDevices.insert(ib2ab(InternalBattery.status), at: 0)
                 do {
                     let jsonData = try JSONEncoder().encode(allDevices)
@@ -418,7 +418,7 @@ struct popover: View {
     private var emptyState: some View {
         let ib = ib2ab(InternalBattery.status)
         return HStack(spacing: dropdownScaled(8)) {
-            Image(getDeviceIcon(ib))
+            deviceIconImage(ib)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .foregroundStyle(.primary)
@@ -436,7 +436,7 @@ struct popover: View {
         alertList = ud.get(objectType: [btAlert].self, forKey: "alertList") ?? []
         let alertWindowController = AlertWindowController()
         if let existing = alertList.first(where: { $0.name == device.deviceName }) {
-            alertWindowController.showAlert(with: existing, iconName: getDeviceIcon(device), onConfirm: { newAlert in
+            alertWindowController.showAlert(with: existing, icon: deviceIconImage(device), onConfirm: { newAlert in
                 alertList = ud.get(objectType: [btAlert].self, forKey: "alertList") ?? []
                 alertList.removeAll { $0.name == device.deviceName }
                 alertList.append(newAlert)
@@ -444,7 +444,7 @@ struct popover: View {
             }, onCancel: {})
         } else {
             let alert = btAlert(name: device.deviceName, full: 80, fullOn: true, fullSound: true, low: 20, lowOn: true, lowSound: true)
-            alertWindowController.showAlert(with: alert, iconName: getDeviceIcon(device), onConfirm: { newAlert in
+            alertWindowController.showAlert(with: alert, icon: deviceIconImage(device), onConfirm: { newAlert in
                 alertList = ud.get(objectType: [btAlert].self, forKey: "alertList") ?? []
                 alertList.append(newAlert)
                 ud.set(object: alertList, forKey: "alertList")

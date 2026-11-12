@@ -78,7 +78,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     let nc = NSWorkspace.shared.notificationCenter
     
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-        
+        if BridgeNotifications.handle(response) {
+            completionHandler()
+            return
+        }
         if response.actionIdentifier == "DELAY_30_MIN" {
             let deviceName = response.notification.request.content.userInfo["customInfo"] as? String ?? ""
             lowPowerNoteDelay[deviceName] = Date().timeIntervalSince1970 + 1800
@@ -127,6 +130,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
                 "widgetInterval": 0,
                 "hideLevel": 90,
                 "nearCast": false,
+                "batteryBridge": false,
+                "bridgeMode": BridgeMode.blocklist.rawValue,
                 "readBTHID": true,
                 "whitelistMode": false,
                 "dropdownTheme": DropdownTheme.adaptive.rawValue,
@@ -182,6 +187,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         print("⚙️ Launch GlassyBattery at login = \(launchAtLogin)")
         print("⚙️ Icon mode = \(showOn)")
         if ncGroupID != "" { if nearCast { netcastService.resume() } }
+        BridgeNotifications.registerCategory()
+        BatteryBridge.shared.router.onPendingClient = { BridgeNotifications.requestApproval(for: $0) }
+        if ud.bool(forKey: "batteryBridge") { BatteryBridge.shared.start() }
         if let result = process(path: "/usr/sbin/system_profiler", arguments: ["SPBluetoothDataType", "-json"]) { SPBluetoothDataModel.shared.data = result }
         
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
@@ -257,6 +265,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     
     func applicationWillTerminate(_ notification: Notification) {
         if let act = keepAliveActivity { ProcessInfo.processInfo.endActivity(act) }
+        // The bridge's own stop() is async and wouldn't run before exit; clients also check the pid in it.
+        try? fd.removeItem(at: BatteryBridge.defaultDiscoveryURL)
 
         _ = process(path: "/usr/bin/killall", arguments: ["idevicesyslog"])
     }
@@ -725,8 +735,8 @@ func refeshPinnedBar(unpin: String? = nil) {
         } else {
             let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             if let button = statusItem.button {
-                let icon = getDeviceIcon(device)
-                let image = NSImage(named: icon)!.resized(to: NSSize(width: 17, height: 17))
+                let image = (deviceIconNSImage(device) ?? NSImage(named: "questionmark.circle.fill")!)
+                    .resized(to: NSSize(width: 17, height: 17))
                 image.isTemplate = true
                 button.image = image
                 button.title = "\(device.batteryLevel)\(device.isCharging != 0  ? "⚡︎" : "%")"

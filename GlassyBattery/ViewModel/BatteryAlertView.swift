@@ -28,11 +28,11 @@ struct AlertInputView: View {
     @State private var overCloseButton = false
     @State private var alertList = ud.get(objectType: [btAlert].self, forKey: "alertList") ?? []
 
-    var iconName: String
+    var icon: Image
     var onConfirm: (btAlert) -> Void
     var onCancel: () -> Void
 
-    init(alert: btAlert, iconName: String, onConfirm: @escaping (btAlert) -> Void, onCancel: @escaping () -> Void) {
+    init(alert: btAlert, icon: Image, onConfirm: @escaping (btAlert) -> Void, onCancel: @escaping () -> Void) {
         _name = State(initialValue: alert.name)
         _full = State(initialValue: alert.full)
         _low = State(initialValue: alert.low)
@@ -40,7 +40,7 @@ struct AlertInputView: View {
         _lowOn = State(initialValue: alert.lowOn)
         _fullSound = State(initialValue: alert.fullSound)
         _lowSound = State(initialValue: alert.lowSound)
-        self.iconName = iconName
+        self.icon = icon
         self.onConfirm = onConfirm
         self.onCancel = onCancel
     }
@@ -51,7 +51,7 @@ struct AlertInputView: View {
                 .background(BlurView(material: .menu))
                 .cornerRadius(14)*/
             VStack {
-                Image(iconName)
+                icon
                     .resizable()
                     .scaledToFit()
                     .frame(height: 40)
@@ -173,9 +173,9 @@ struct AlertInputView: View {
 class AlertWindowController {
     var window: NNSWindow?
 
-    func showAlert(with alert: btAlert, iconName: String, onConfirm: @escaping (btAlert) -> Void, onCancel: @escaping () -> Void) {
+    func showAlert(with alert: btAlert, icon: Image, onConfirm: @escaping (btAlert) -> Void, onCancel: @escaping () -> Void) {
         // 创建 AlertInputView，传入可选的 btAlert 对象
-        let alertView = AlertInputView(alert: alert, iconName: iconName, onConfirm: { newAlert in
+        let alertView = AlertInputView(alert: alert, icon: icon, onConfirm: { newAlert in
             // 确认操作后，关闭窗口并返回数据
             self.window?.close()
             onConfirm(newAlert)

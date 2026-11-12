@@ -23,6 +23,11 @@ struct Device: Hashable, Codable {
     var deviceType: String
     var deviceName: String
     var deviceModel: String?
+    /// An SF Symbol a BatteryBridge client chose to draw instead of the type's icon (see
+    /// `deviceIconImage`). Optional, so JSON from widgets and Nearcast peers without it still decodes.
+    var deviceIcon: String? = nil
+    /// The name of an icon the device's BatteryBridge client uploaded (see `customDeviceIcon`).
+    var deviceCustomIcon: String? = nil
     var batteryLevel: Int
     var isCharging: Int
     var isCharged: Bool = false
@@ -40,6 +45,8 @@ struct Device: Hashable, Codable {
         hasher.combine(deviceType)
         hasher.combine(deviceName)
         hasher.combine(deviceModel)
+        hasher.combine(deviceIcon)
+        hasher.combine(deviceCustomIcon)
         hasher.combine(batteryLevel)
         hasher.combine(isCharging)
         hasher.combine(isCharged)
@@ -69,7 +76,20 @@ class GlassyBatteryModel {
             Devices.append(device)
         }
     }
-    
+
+    /// Every stored device, including hidden, expired and blocked ones.
+    static func snapshot() -> [Device] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Devices
+    }
+
+    static func removeDevices(where shouldRemove: (Device) -> Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        Devices.removeAll(where: shouldRemove)
+    }
+
     static func hideDevice(_ name: String) {
         lock.lock()
         defer { lock.unlock() }
@@ -155,6 +175,12 @@ class GlassyBatteryModel {
         return url
     }
     
+    /// Icons BatteryBridge clients upload, one folder per client: beside `data.json`, in the
+    /// widget's container, so the widget can read them as well as the app.
+    static func bridgeIconsURL() -> URL {
+        getJsonURL().deletingLastPathComponent().appendingPathComponent("BridgeIcons", isDirectory: true)
+    }
+
     static func writeData(){
         //let showMac = ud.object(forKey: "showMacOnWidget") as? Bool ?? true
         let revList = ud.object(forKey: "revListOnWidget") as? Bool ?? false
