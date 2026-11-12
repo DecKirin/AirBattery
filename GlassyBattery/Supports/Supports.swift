@@ -1027,7 +1027,9 @@ struct NativeBattery {
 
 /// 系统自带的电池矢量图形 (Control Center 里那份)
 struct SystemBatteryArtwork {
-    let outline: NSImage
+    /// 26 以前那套描边外壳. macOS 27.2 起 Control Center 不再带这张图 (主体改成代码画的),
+    /// 所以可以没有 —— 没有时外壳按 `classic` 的数值自己画, 电池头和充电图标照样用系统的
+    let outline: NSImage?
     let cap: NSImage
     /// 充电图标. 系统画法是 "先拿 mask 在填充上挖个洞, 再把本体画回洞里",
     /// 挖的比本体大一圈, 所以本体周围会留一道底色的缝 —— 两张必须配套,
@@ -1061,11 +1063,13 @@ extension NativeBattery {
     /// 位置和大小可以从外壳尺寸推出来 (这套图形一直是 "1pt 描边 + 1pt 空隙", 23×12、19×10、iOS 的 25×13 都成立),
     /// 只有圆角推不出来, 所以按量到的几档取值.
     static let system: NativeBattery? = {
+        // 以前 battery-outline 读不到就整套放弃, 27.2 删了这张图之后电池头和充电图标也跟着
+        // 退回了自己画的 / SF Symbol —— 菜单栏里那颗闪电直接大了一倍. 所以外壳单独可选
         guard let bundle = Bundle(path: "/System/Library/CoreServices/ControlCenter.app"),
-              let outline = bundle.image(forResource: "battery-outline"),
-              let cap = bundle.image(forResource: "battery-cap"),
-              outline.size.width > 8, outline.size.height > 6 else { return nil }
-        let body = outline.size
+              let cap = bundle.image(forResource: "battery-cap") else { return nil }
+        let outline = bundle.image(forResource: "battery-outline")
+            .flatMap { $0.size.width > 8 && $0.size.height > 6 ? $0 : nil }
+        let body = outline?.size ?? NativeBattery.classic.bodySize
         let gap: CGFloat = 1
         // 充电图标读不到不影响外壳, 所以单独取, 缺了就让调用方退回自带 PNG.
         // 注意大号那套的遮罩叫 battery-bolt-mask-large (不是 -large-mask), 所以名字分开传
@@ -1088,7 +1092,8 @@ extension NativeBattery {
             borderWidth: 1,
             nubGap: gap,
             nubSize: cap.size,
-            bodyOpacity: 1,
+            // 没有 outline 时描边是自己画的, 不透明度得自己给
+            bodyOpacity: outline == nil ? NativeBattery.classic.bodyOpacity : 1,
             nubOpacity: 1,
             levelSize: CGSize(width: body.width - 4, height: body.height - 4),
             levelCornerRadius: NativeBattery.classic.levelCornerRadius * body.height / 12,
@@ -1150,27 +1155,38 @@ struct NativeBatteryTrack: View {
 /// 数值是在 macOS 27.0 (26A428) 的真菜单栏上量的 —— 截图放大到 24px/pt 后逐像素量的连通域:
 /// 主体 23×12pt, 数字大写高 6.5pt, 小闪电 3.5×5pt, 整组在主体里居中.
 enum FilledBatteryGlyph {
-    /// 数字. 在 macOS 27.0 的真菜单栏上和系统那颗并排逐像素比对 (95%, 两位数, 没被压缩的那档):
+    /// 一套排版: 数字的字号/字重/字距, 右边充电符号的画布高度/间距/竖直偏移, 整组的横向偏移
+    struct Layout {
+        let fontSize: CGFloat
+        let weight: Font.Weight
+        let tracking: CGFloat
+        /// 充电符号 (battery-bolt / battery-plug, 11×14) 的画布高度; 墨迹占画布的 12/14
+        let symbolCanvasHeight: CGFloat
+        /// 数字和符号之间的间距. 符号自带左右边距, 所以可以是负的
+        let symbolSpacing: CGFloat
+        let symbolOffsetY: CGFloat
+        /// 整组相对主体中心的横向偏移
+        let offsetX: CGFloat
+    }
+
+    /// 两位数 (以及不带充电符号的三位数).
+    /// 在 macOS 27.0 (26A428) 的真菜单栏上和系统那颗并排逐像素比对 (95%):
     /// 字号 9.4–10.6 × 字重 light/regular/medium 一起扫, 只有 regular 10.0 对得上 (残差 0.86,
-    /// 次好的 13.3), 包围盒、墨量 (121 vs 123px²) 和重心都一致; 早先的 9.7 数字还会整体高出 0.4pt.
-    /// 注意别拿 100% 充电那档去量 —— 三位数加闪电塞不下时系统会整组缩一点, 拿压缩后的尺寸当基准会整体偏小
-    static let fontSize: CGFloat = 10.0
-    /// 显示百分比时右边跟的那个充电符号. 系统用的还是 battery-bolt / battery-plug 那张图,
-    /// 只是缩到和数字差不多高: 量到墨迹 4.5×7.0pt, 长宽比 0.64, 和 11×14 资源的 0.66 对得上.
-    /// 这里给的是画布高度, 资源里墨迹占画布的 11.94/14, 所以 8.2 画出来墨高约 7.0
-    static let symbolCanvasHeight: CGFloat = 8.2
+    /// 次好的 13.3), 包围盒、墨量 (121 vs 123px²) 和重心都一致. 符号量到墨迹 4.5×7.0pt,
+    /// 资源里墨迹占画布的 12/14, 所以画布 8.2
+    static let standard = Layout(fontSize: 10.0, weight: .regular, tracking: 0,
+                                 symbolCanvasHeight: 8.2, symbolSpacing: 0, symbolOffsetY: 0, offsetX: 0)
+
+    /// 三位数 (100%) 带充电符号. 在 macOS 27.2 (26B123) 的真菜单栏上量: 6 帧系统电池取平均做基准,
+    /// 用 SwiftUI 按 2x 实际渲染去扫 —— 字重 regular/medium/semibold × 字号 8.7–9.4 × 字距 × 符号
+    /// 大小/间距/偏移 —— medium 8.95 / 字距 -0.2 / 符号画布 7.0 上移 0.25 / 间距 -0.75 / 整组右移
+    /// 0.375 最好, 残差 3.6 (之前那套 10×0.87 regular + -0.3 字距是 34.9). 系统在这一档不只是把字缩小,
+    /// 字重也重一档 —— 只缩不加粗, 笔画会挖不透
+    static let compact = Layout(fontSize: 8.95, weight: .medium, tracking: -0.2,
+                                symbolCanvasHeight: 7.0, symbolSpacing: -0.75, symbolOffsetY: -0.25, offsetX: 0.375)
+
     /// 读不到系统资源时退回 SF Symbol, 这时按字号给
     static let symbolFallbackFontSize: CGFloat = 8
-    /// 字重. 在真菜单栏上和系统那颗并排量 (95%, 数字宽度和位置都已对齐): 系统数字的墨量是
-    /// 我们 .light 的 1.31 倍, 且多压出一行反锯齿 —— .regular / .light 的笔画比约 1.2, 再加上
-    /// 粗一档带来的那行边缘正好对上. 早先按 .medium 的 0.70 倍推成 .light, 是把 .medium 量粗了
-    static let weight: Font.Weight = .regular
-    /// 数字和符号之间的间距. 符号自带左右边距, 所以这里不用再留
-    static let symbolSpacing: CGFloat = 0
-    /// 三位数 (100%) 时整组缩放的比例, 见 BatteryView 里的 glyphScale
-    static let threeDigitScale: CGFloat = 0.87
-    /// 三位数 (100%) 时收一点字距, 帮着塞进 23pt 的主体里
-    static let tightening: CGFloat = -0.3
 }
 
 /// 充电图标 (闪电 / 插头).
@@ -1290,8 +1306,8 @@ struct NativeBatteryShell: View {
 
     var body: some View {
         HStack(spacing: metrics.nubGap) {
-            if let artwork = metrics.artwork {
-                Image(nsImage: artwork.outline).renderingMode(.template).foregroundColor(ink)
+            if let outline = metrics.artwork?.outline {
+                Image(nsImage: outline).renderingMode(.template).foregroundColor(ink)
             } else {
                 RoundedRectangle(cornerRadius: metrics.bodyCornerRadius, style: .continuous)
                     .strokeBorder(ink, lineWidth: metrics.borderWidth)
