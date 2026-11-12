@@ -173,38 +173,38 @@ struct mainBatteryView: View {
         }
     }
 
-    /// 三位数 (100%) 且旁边带充电符号时整组缩一点. 系统也是这么干的: 同样是充电中, 两位数时数字 7.0pt、
-    /// 闪电 4.5×7.0, 到了 100% 就变成 6.5pt / 3.5×5.0 —— 不缩的话 "100" 加闪电要占 21.9pt,
-    /// 塞不进 23pt 的主体 (系统那组是 19.0pt, 19.0/21.9 ≈ 0.87).
-    /// 没接电源时光是 "100" 有 23pt 塞得下, 系统就不缩 (真菜单栏上量: 100% 不充电的数字高度
-    /// 和 95% 一样都是 8.0pt), 我们缩了反而比它小一圈
-    private var glyphScale: CGFloat {
-        item.batteryLevel > 99 && item.acPowered ? FilledBatteryGlyph.threeDigitScale : 1
+    /// 三位数 (100%) 且旁边带充电符号时换一套更紧凑的排版, 不然 "100" 加闪电塞不进 23pt 的主体.
+    /// 没接电源时光是 "100" 塞得下, 系统就不换 (100% 不充电的数字和 95% 一样大)
+    private var glyphLayout: FilledBatteryGlyph.Layout {
+        item.batteryLevel > 99 && item.acPowered ? FilledBatteryGlyph.compact : FilledBatteryGlyph.standard
     }
 
     /// 填充式电池里那组 "百分比 + 充电符号", 在主体里居中
     private func filledGlyphGroup(_ m: NativeBattery) -> some View {
-        HStack(spacing: FilledBatteryGlyph.symbolSpacing) {
+        let layout = glyphLayout
+        return HStack(spacing: layout.symbolSpacing) {
             // 用比例数字, 不用等宽: 系统的 "100" 里那个 1 就是窄的 —— 在真菜单栏上量, 等宽的 "100"
             // 比系统宽 1pt (35 vs 33px @2x), 换成比例数字后包围盒 (x 6..38) 和墨量都和系统一致
             Text("\(item.batteryLevel)")
-                .font(.system(size: FilledBatteryGlyph.fontSize * glyphScale, weight: FilledBatteryGlyph.weight))
-                .modifier(DigitTightening(amount: glyphScale < 1 ? FilledBatteryGlyph.tightening : 0))
-            if item.acPowered { filledChargingSymbol(m) }
+                .font(.system(size: layout.fontSize, weight: layout.weight))
+                .modifier(DigitTightening(amount: layout.tracking))
+            if item.acPowered { filledChargingSymbol(m, layout) }
         }
         // 不加这个 SwiftUI 会拿下面那个 23pt 的 frame 去挤文字, 三位数直接被截成 "1…"
         .fixedSize()
+        .offset(x: layout.offsetX)
         .frame(width: m.bodySize.width, height: m.bodySize.height)
     }
 
     /// 百分比右边那个充电符号. 直接拿系统那张 battery-bolt / battery-plug 缩小来用,
     /// 形状就不会走样 —— 之前用 SF Symbol 的 bolt.fill 凑, 大小和轮廓都对不上
-    @ViewBuilder private func filledChargingSymbol(_ m: NativeBattery) -> some View {
-        let h = FilledBatteryGlyph.symbolCanvasHeight * glyphScale
+    @ViewBuilder private func filledChargingSymbol(_ m: NativeBattery, _ layout: FilledBatteryGlyph.Layout) -> some View {
+        let h = layout.symbolCanvasHeight
         if let glyph = m.artwork?.glyph(bolt: chargingIcon == "bolt") {
             Image(nsImage: glyph.image).renderingMode(.template)
                 .resizable().scaledToFit()
                 .frame(width: h * 11 / 14, height: h)
+                .offset(y: layout.symbolOffsetY)
         } else {
             Image(systemName: chargingIcon == "bolt" ? "bolt.fill" : "powerplug.portrait.fill")
                 .font(.system(size: FilledBatteryGlyph.symbolFallbackFontSize, weight: .medium))
