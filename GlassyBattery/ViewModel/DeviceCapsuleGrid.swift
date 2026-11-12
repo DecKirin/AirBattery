@@ -751,7 +751,7 @@ struct DeviceCapsuleView: View {
     /// it, so the icon and label inherit that vibrancy.
     private var badge: some View {
         HStack(spacing: dropdownScaled(4)) {
-            Image(getDeviceIcon(device))
+            deviceIconImage(device)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: dropdownScaled(14), height: dropdownScaled(14))

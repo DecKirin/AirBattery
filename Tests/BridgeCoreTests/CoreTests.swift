@@ -86,9 +86,9 @@ func runCoreTests() throws {
 
     let clientID = "abc123def456"
     func payload(_ id: String = "mouse", name: String = "Bridge Mouse", type: String = "Mouse",
-                 level: Int? = 55, charging: Bool? = true, hasBattery: Bool? = nil) -> BridgeDevicePayload {
+                 level: Int? = 55, charging: Bool? = true, hasBattery: Bool? = nil, icon: String? = nil) -> BridgeDevicePayload {
         BridgeDevicePayload(id: id, name: name, type: type, model: " M720 ", level: level,
-                            charging: charging, hasBattery: hasBattery, parent: nil)
+                            charging: charging, hasBattery: hasBattery, parent: nil, icon: icon)
     }
 
     do {
@@ -101,7 +101,33 @@ func runCoreTests() throws {
         check(getDeviceIcon(d) == "computermouse.fill", "type maps to the right icon")
 
         let odd = try BridgeDevices.make(from: payload(type: "Toaster"), clientID: clientID, existing: [])
-        check(odd.deviceType == "general_bt", "unknown type falls back to general_bt")
+        check(odd.deviceType == "generic" && getDeviceIcon(odd) == "cube.fill", "unknown type falls back to the generic icon")
+        check(d.deviceIcon == nil && customDeviceSymbol(d) == nil, "no icon unless the client sends one")
+
+        // A chosen SF Symbol is drawn instead of the type's icon, when this Mac has it.
+        let printer = try BridgeDevices.make(from: payload(icon: " printer.fill "), clientID: clientID, existing: [])
+        check(printer.deviceIcon == "printer.fill" && customDeviceSymbol(printer) == "printer.fill", "icon is stored and drawn")
+        let future = try BridgeDevices.make(from: payload(icon: "printer.fill.from.the.future"), clientID: clientID, existing: [])
+        check(future.deviceIcon == "printer.fill.from.the.future" && customDeviceSymbol(future) == nil,
+              "a symbol this Mac lacks is kept but not drawn, so the type's icon shows")
+        check(customDeviceSymbol(future) == nil, "the miss is cached, not looked up again as a hit")
+        let long = String(repeating: "a.", count: 49) + "fill"   // 102 characters, like the longest real names
+        check((try? BridgeDevices.make(from: payload(icon: long), clientID: clientID, existing: []))?.deviceIcon == long,
+              "icon names past 64 characters are allowed")
+        for bad in ["Printer.Fill", "printer..fill", ".printer", "printer fill", "printer/fill"] {
+            expectError(.invalid("icon", "must be an SF Symbol name, like \"printer.fill\""), "icon \(bad) is rejected") {
+                _ = try BridgeDevices.make(from: payload(icon: bad), clientID: clientID, existing: [])
+            }
+        }
+        expectError(.invalid("icon", "must be at most 128 characters"), "icon too long") {
+            _ = try BridgeDevices.make(from: payload(icon: String(repeating: "a", count: 129)), clientID: clientID, existing: [])
+        }
+
+        // Older JSON (widgets, Nearcast peers on an earlier version) has no deviceIcon.
+        let old = #"{"hasBattery":true,"deviceID":"x","deviceType":"Mouse","deviceName":"x","batteryLevel":1,"isCharging":0,"isCharged":false,"isPaused":false,"acPowered":false,"isHidden":false,"lowPower":false,"parentName":"","lastUpdate":0,"realUpdate":0}"#
+        check((try? JSONDecoder().decode(Device.self, from: Data(old.utf8)))?.deviceIcon == nil, "a device without deviceIcon decodes")
+        let roundTrip = try JSONDecoder().decode(Device.self, from: JSONEncoder().encode(printer))
+        check(roundTrip == printer, "deviceIcon survives the JSON the widget and Nearcast read")
 
         let noBattery = try BridgeDevices.make(from: payload(level: nil, hasBattery: false), clientID: clientID, existing: [])
         check(!noBattery.hasBattery && noBattery.batteryLevel == 0, "devices without a battery")

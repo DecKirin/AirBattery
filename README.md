@@ -47,7 +47,7 @@ Download the latest disk image from [Releases](../../releases/latest), open it a
 - GlassyBattery will automatically search for all devices supported by the **"Nearbility Engine"** without manual configuration.  
 - Click the Dock icon / status bar icon, or add a widget to view the battery usage of your devices.  
 - You can also use the **"Nearcast"** feature to check the battery usage of other Macs and their peripherals in the LAN at any time.  
-- Other apps on your Mac can add their own devices through **"BatteryBridge"**, a local API you turn on in preferences. See the [BatteryBridge API](docs/BatteryBridge.md).  
+- Other apps on your Mac can add their own devices through **"BatteryBridge"**, a local API you turn on in preferences, each with a built-in icon or any SF Symbol. See the [BatteryBridge API](docs/BatteryBridge.md).  
 - You can also change the status bar icon to a real-time battery icon in preferences, just like the one that comes with the system.  
 - Pin a device from its capsule to give it a permanent status bar item of its own.  
 - If necessary, you can hide certain devices from the panel, and unhide them at any time in Preferences → *Blocklist*.  

@@ -735,8 +735,8 @@ func refeshPinnedBar(unpin: String? = nil) {
         } else {
             let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             if let button = statusItem.button {
-                let icon = getDeviceIcon(device)
-                let image = NSImage(named: icon)!.resized(to: NSSize(width: 17, height: 17))
+                let image = (deviceIconNSImage(device) ?? NSImage(named: "questionmark.circle.fill")!)
+                    .resized(to: NSSize(width: 17, height: 17))
                 image.isTemplate = true
                 button.image = image
                 button.title = "\(device.batteryLevel)\(device.isCharging != 0  ? "⚡︎" : "%")"

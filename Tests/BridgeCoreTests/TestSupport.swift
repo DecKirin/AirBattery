@@ -37,6 +37,11 @@ func expectError(_ expected: BridgeError, _ label: String, file: String = #fileI
 }
 
 let tempDir = fd.temporaryDirectory.appendingPathComponent("bridge-tests-\(UUID().uuidString)")
+/// An icon store in the temporary folder, so no test touches the real one.
+func testIcons() -> BridgeIconStore {
+    BridgeIconStore(directory: tempDir.appendingPathComponent("icons-\(UUID().uuidString)"))
+}
+
 func freshStore() -> (BridgeClientStore, URL) {
     let url = tempDir.appendingPathComponent("\(UUID().uuidString)/clients.json")
     return (BridgeClientStore(fileURL: url), url)

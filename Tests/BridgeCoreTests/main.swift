@@ -9,6 +9,7 @@ do {
     try runCoreTests()
     try runHTTPTests()
     try runRouterTests()
+    try runIconTests()
     try runServerTests()
     try runStreamTests()
 } catch {

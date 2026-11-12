@@ -24,6 +24,7 @@ final class BridgeRouter {
 
     let store: BridgeClientStore
     let devices: DeviceList
+    let icons: BridgeIconStore
     let mode: () -> BridgeMode
     /// The port the listener is bound to, for the Host check.
     var port: UInt16 = 0
@@ -31,9 +32,11 @@ final class BridgeRouter {
     var onPendingClient: ((BridgeClient) -> Void)?
     var now: () -> Double = { Date().timeIntervalSince1970 }
 
-    init(store: BridgeClientStore, devices: DeviceList = .model, mode: @escaping () -> BridgeMode) {
+    init(store: BridgeClientStore, devices: DeviceList = .model, icons: BridgeIconStore = .shared,
+         mode: @escaping () -> BridgeMode) {
         self.store = store
         self.devices = devices
+        self.icons = icons
         self.mode = mode
     }
 
@@ -79,6 +82,17 @@ final class BridgeRouter {
             case "DELETE": return try delete(localID: rest[1], client: authenticate(request))
             default: throw BridgeError.methodNotAllowed
             }
+        case "icons" where rest.count == 1:
+            guard method == "GET" else { throw BridgeError.methodNotAllowed }
+            return .json(200, ["icons": icons.list(clientID: try authenticate(request).id)])
+        case "icons" where rest.count == 2:
+            switch method {
+            case "PUT": return try putIcon(request, name: rest[1], client: authenticate(request))
+            case "DELETE":
+                try icons.delete(name: rest[1], clientID: authenticate(request).id)
+                return .noContent
+            default: throw BridgeError.methodNotAllowed
+            }
         default:
             throw BridgeError.routeNotFound
         }
@@ -114,10 +128,22 @@ final class BridgeRouter {
         return .noContent
     }
 
+    /// `{"format": "pdf" | "svg" | "png", "data": "<base64>"}`. JSON rather than raw bytes, as
+    /// every body must be JSON (see `checkCaller`).
+    private func putIcon(_ request: BridgeHTTPRequest, name: String, client: BridgeClient) throws -> BridgeHTTPResponse {
+        struct Body: Decodable { let format: String; let data: String }
+        let body = try decode(Body.self, from: request)
+        guard let data = Data(base64Encoded: body.data, options: .ignoreUnknownCharacters) else {
+            throw BridgeError.invalid("data", "must be base64")
+        }
+        return .json(200, ["icon": try icons.put(name: name, format: body.format, data: data, clientID: client.id)])
+    }
+
     // MARK: Device operations (shared with the stream)
 
     func upsert(_ payload: BridgeDevicePayload, for client: BridgeClient) throws -> BridgeDeviceInfo {
-        let device = try BridgeDevices.make(from: payload, clientID: client.id, existing: devices.snapshot(), now: now())
+        let device = try BridgeDevices.make(from: payload, clientID: client.id, existing: devices.snapshot(),
+                                            hasIcon: { self.icons.exists(name: $0, clientID: client.id) }, now: now())
         devices.update(device)
         return BridgeDeviceInfo(device)
     }
@@ -128,7 +154,8 @@ final class BridgeRouter {
         var working = devices.snapshot()
         var accepted: [Device] = []
         for payload in payloads {
-            let device = try BridgeDevices.make(from: payload, clientID: client.id, existing: working, now: now())
+            let device = try BridgeDevices.make(from: payload, clientID: client.id, existing: working,
+                                                hasIcon: { self.icons.exists(name: $0, clientID: client.id) }, now: now())
             working.removeAll { $0.deviceID == device.deviceID || $0.deviceName == device.deviceName }
             working.append(device)
             accepted.removeAll { $0.deviceID == device.deviceID }
@@ -235,6 +262,8 @@ struct BridgeDeviceInfo: Encodable {
     let name: String
     let type: String
     let model: String?
+    let icon: String?
+    let customIcon: String?
     let level: Int
     let charging: Bool
     let hasBattery: Bool
@@ -246,6 +275,8 @@ struct BridgeDeviceInfo: Encodable {
         name = device.deviceName
         type = device.deviceType
         model = device.deviceModel
+        icon = device.deviceIcon
+        customIcon = device.deviceCustomIcon
         level = device.batteryLevel
         charging = device.isCharging != 0
         hasBattery = device.hasBattery
@@ -264,9 +295,12 @@ private struct DeviceBody: Decodable {
     let charging: Bool?
     let hasBattery: Bool?
     let parent: String?
+    let icon: String?
+    let customIcon: String?
 
     var payload: BridgeDevicePayload {
         BridgeDevicePayload(id: id ?? "", name: name, type: type, model: model, level: level,
-                            charging: charging, hasBattery: hasBattery, parent: parent)
+                            charging: charging, hasBattery: hasBattery, parent: parent, icon: icon,
+                            customIcon: customIcon)
     }
 }

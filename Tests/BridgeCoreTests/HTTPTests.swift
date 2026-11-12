@@ -96,7 +96,7 @@ func runRouterTests() throws {
     let memory = MemoryDevices()
     var mode = BridgeMode.blocklist
     var pendingSeen: [String] = []
-    let router = BridgeRouter(store: store, devices: memory.deviceList, mode: { mode })
+    let router = BridgeRouter(store: store, devices: memory.deviceList, icons: testIcons(), mode: { mode })
     router.port = 48620
     router.onPendingClient = { pendingSeen.append($0.name) }
 
@@ -126,6 +126,14 @@ func runRouterTests() throws {
     let putDevice = object(put)["device"] as? [String: Any]
     check(put.status == 200 && putDevice?["id"] as? String == "mx-keys" && putDevice?["charging"] as? Bool == true, "PUT a device")
     check(memory.list.first?.deviceID.hasPrefix("bridge:") == true && memory.list.first?.deviceType == "Keyboard", "stored namespaced")
+    check(putDevice?["icon"] == nil, "no icon in the reply unless one was sent")
+    let withIcon = router.handle(request("PUT", "/v1/devices/mx-keys", token: token,
+                                         json: #"{"name":"MX Keys","type":"Keyboard","level":64,"icon":"keyboard.badge.ellipsis"}"#))
+    check(withIcon.status == 200 && (object(withIcon)["device"] as? [String: Any])?["icon"] as? String == "keyboard.badge.ellipsis"
+          && memory.list.first?.deviceIcon == "keyboard.badge.ellipsis", "PUT with an icon stores and echoes it")
+    check(errorCode(router.handle(request("PUT", "/v1/devices/mx-keys", token: token,
+                                           json: #"{"name":"MX Keys","type":"Keyboard","level":64,"icon":"Not A Symbol"}"#))) == "invalid_icon",
+          "a malformed icon is a 422")
     check(errorCode(router.handle(request("PUT", "/v1/devices/mx-keys", token: token,
                                            json: #"{"id":"other","name":"MX Keys","type":"Keyboard","level":64}"#))) == "invalid_id",
           "body id must match the URL")
@@ -168,7 +176,7 @@ func runServerTests() throws {
     let (store, _) = freshStore()
     let memory = MemoryDevices()
     let discovery = tempDir.appendingPathComponent("bridge.json")
-    let bridge = BatteryBridge(store: store, devices: memory.deviceList, discoveryURL: discovery)
+    let bridge = BatteryBridge(store: store, devices: memory.deviceList, icons: testIcons(), discoveryURL: discovery)
     bridge.start(port: 0)
 
     guard waitUntil({ fd.fileExists(atPath: discovery.path) }),
@@ -202,7 +210,7 @@ func runServerTests() throws {
 
     // A second listener can't share the port.
     let (otherStore, _) = freshStore()
-    let second = BatteryBridge(store: otherStore, devices: MemoryDevices().deviceList,
+    let second = BatteryBridge(store: otherStore, devices: MemoryDevices().deviceList, icons: testIcons(),
                                discoveryURL: tempDir.appendingPathComponent("second.json"))
     second.start(port: UInt16(port))
     check(waitUntil({ if case .failed = second.state { return true } else { return false } }),

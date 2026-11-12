@@ -181,7 +181,7 @@ struct LargeWidgetView : View {
                             let item = entry.data[index]
                             VStack{
                                 HStack() {
-                                    Image(getDeviceIcon(item))
+                                    deviceIconImage(item)
                                         .resizable()
                                         .aspectRatio(contentMode: .fit)
                                     //.foregroundColor(.blackWhite)
@@ -292,7 +292,7 @@ struct SmallWidgetView : View {
                                             .foregroundColor(Color(getPowerColor(item)))
                                     }.rotationEffect(Angle(degrees: 129.6))
                                     
-                                    Image(getDeviceIcon(item))
+                                    deviceIconImage(item)
                                         .resizable()
                                         .aspectRatio(contentMode: .fit)
                                         //.foregroundColor(.blackWhite)
@@ -346,7 +346,7 @@ struct SmallWidgetView : View {
                                             .foregroundColor(Color(getPowerColor(item)))
                                     }.rotationEffect(Angle(degrees: 129.6))
                                     
-                                    Image(getDeviceIcon(item))
+                                    deviceIconImage(item)
                                         .resizable()
                                         .aspectRatio(contentMode: .fit)
                                         //.foregroundColor(.blackWhite)
@@ -430,7 +430,7 @@ struct MediumWidgetView : View {
                                             .foregroundColor(Color(getPowerColor(item)))
                                     }.rotationEffect(Angle(degrees: 270.0))
                                     
-                                    Image(getDeviceIcon(item))
+                                    deviceIconImage(item)
                                         .resizable()
                                         .aspectRatio(contentMode: .fit)
                                         //.foregroundColor(.blackWhite)

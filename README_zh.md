@@ -47,7 +47,7 @@ GlassyBattery 可以获取你的 Mac 以及周边所有 Apple 或蓝牙设备的
 - 无需任何手动配置, GlassyBattery 启动后会自动搜索所有支持隔空电量获取的设备. 
 - 您可以单击 Dock 图标 / 状态栏图标、或添加小组件查随时看周边设备的电量信息. 
 - 利用 `Nearcast` 功能还可以随时查看局域网中属于你的其他 Mac 及其外设的电量.
-- 通过 `BatteryBridge` (需在偏好设置中开启), 本机上的其他应用可以经由本地 API 添加自己的设备, 详见 [BatteryBridge API](docs/BatteryBridge.md) (英文).
+- 通过 `BatteryBridge` (需在偏好设置中开启), 本机上的其他应用可以经由本地 API 添加自己的设备, 图标可用内置图标或任意 SF Symbol, 详见 [BatteryBridge API](docs/BatteryBridge.md) (英文).
 - 您还可以在偏好设置中将状态栏图标更改为实时电量显示, 就像系统自带图标的那样.  
 - 在设备胶囊上将其固定, 即可为它单独生成一个常驻的状态栏图标.  
 - 如有需要, 可以将某些设备从面板中隐藏, 亦可随时在偏好设置 → *屏蔽设备*中解除隐藏.  

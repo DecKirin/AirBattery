@@ -53,10 +53,11 @@ final class BatteryBridge: ObservableObject {
     private var connections: [ObjectIdentifier: BridgeConnection] = [:]
     private var sessions: [ObjectIdentifier: BridgeStreamSession] = [:]
 
-    init(store: BridgeClientStore, devices: BridgeRouter.DeviceList = .model, discoveryURL: URL) {
+    init(store: BridgeClientStore, devices: BridgeRouter.DeviceList = .model, icons: BridgeIconStore = .shared,
+         discoveryURL: URL) {
         self.store = store
         self.discoveryURL = discoveryURL
-        router = BridgeRouter(store: store, devices: devices, mode: { BatteryBridge.mode })
+        router = BridgeRouter(store: store, devices: devices, icons: icons, mode: { BatteryBridge.mode })
     }
 
     /// Starts listening on 127.0.0.1. `port` 0 picks free ports for both listeners (tests use this).
@@ -106,10 +107,11 @@ final class BatteryBridge: ObservableObject {
         endStreams(of: clientID, with: BridgeStreamEvent(event: "blocked"))
     }
 
-    /// Forgets a client and its devices.
+    /// Forgets a client, its devices and its icons.
     func remove(clientID: String) {
         store.remove(id: clientID)
         removeDevices(ofClient: clientID)
+        router.icons.removeAll(clientID: clientID)
         endStreams(of: clientID, with: BridgeStreamEvent(event: "removed"))
     }
 

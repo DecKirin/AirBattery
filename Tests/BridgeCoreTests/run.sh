@@ -15,6 +15,7 @@ xcrun swiftc -o "$out/bridge-core-tests" \
     "$root/GlassyBattery/Bridge/BridgeModels.swift" \
     "$root/GlassyBattery/Bridge/BridgeClientStore.swift" \
     "$root/GlassyBattery/Bridge/BridgeDevices.swift" \
+    "$root/GlassyBattery/Bridge/BridgeIcons.swift" \
     "$root/GlassyBattery/Bridge/BridgeHTTP.swift" \
     "$root/GlassyBattery/Bridge/BridgeRouter.swift" \
     "$root/GlassyBattery/Bridge/BridgeStream.swift" \

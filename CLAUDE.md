@@ -85,7 +85,7 @@ Scan cadence is centralized as shared `Timer.publish` instances at the top of `S
 
 ### UI layer (`GlassyBattery/ViewModel/`)
 
-SwiftUI views only — `ContentView.swift` (popover/dock content, largest file), `BatteryView.swift` (per-device row rendering, icons, colors), `BatteryAlertView.swift` (low/full battery alert configuration), `SettingsView.swift` (preferences window content). Device icon selection (`getDeviceIcon`) and battery-level color coding (`getPowerColor`, `getHealthColor`) live in `Supports.swift` and are shared by both the main app UI and the widget.
+SwiftUI views only — `ContentView.swift` (popover/dock content, largest file), `BatteryView.swift` (per-device row rendering, icons, colors), `BatteryAlertView.swift` (low/full battery alert configuration), `SettingsView.swift` (preferences window content). Device icon selection (`getDeviceIcon`) and battery-level color coding (`getPowerColor`, `getHealthColor`) live in `Supports.swift` and are shared by both the main app UI and the widget. `getDeviceIcon` returns the name of a bundled icon (`Assets.xcassets/Device Icon`, SF Symbols exported as SVG so they draw on every supported macOS); draw it with `deviceIconImage(_:)` / `deviceIconNSImage(_:)`, never `Image(getDeviceIcon(...))` directly, because those helpers first honour what a BatteryBridge client chose: `Device.deviceCustomIcon` (an icon it uploaded, a file under `GlassyBatteryModel.bridgeIconsURL()/<clientID>/`, which `BridgeIconStore` manages), then `Device.deviceIcon` (an SF Symbol), each only when this Mac can draw it.
 
 ### Localization
 

@@ -62,7 +62,7 @@ func runStreamTests() throws {
     let (store, _) = freshStore()
     let memory = MemoryDevices()
     let discovery = tempDir.appendingPathComponent("stream-bridge.json")
-    let bridge = BatteryBridge(store: store, devices: memory.deviceList, discoveryURL: discovery)
+    let bridge = BatteryBridge(store: store, devices: memory.deviceList, icons: testIcons(), discoveryURL: discovery)
     bridge.start(port: 0)
     guard waitUntil({ fd.fileExists(atPath: discovery.path) }),
           let info = try? JSONSerialization.jsonObject(with: Data(contentsOf: discovery)) as? [String: Any],

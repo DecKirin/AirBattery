@@ -53,6 +53,10 @@ struct BridgeDevicePayload: Codable, Equatable {
     var charging: Bool?
     var hasBattery: Bool?
     var parent: String?
+    /// An SF Symbol to draw instead of the type's icon.
+    var icon: String? = nil
+    /// The name of an icon this client uploaded, drawn before `icon` and the type's icon.
+    var customIcon: String? = nil
 }
 
 /// An API error. `status` is the HTTP status, `code` a stable string clients can switch on.
@@ -65,6 +69,9 @@ struct BridgeError: Error, Equatable, Codable {
     static let pending = BridgeError(status: 403, code: "pending", message: "This client is waiting for approval in GlassyBattery")
     static let blocked = BridgeError(status: 403, code: "blocked", message: "This client has been blocked in GlassyBattery")
     static let notFound = BridgeError(status: 404, code: "not_found", message: "No such device")
+    static let iconNotFound = BridgeError(status: 404, code: "not_found", message: "No such icon")
+    static let tooManyIcons = BridgeError(status: 422, code: "too_many_icons",
+                                          message: "A client can upload at most \(BridgeIconStore.maxPerClient) icons")
     static let tooManyDevices = BridgeError(status: 422, code: "too_many_devices",
                                             message: "A client can register at most \(BridgeDevices.maxPerClient) devices")
 

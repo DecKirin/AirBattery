@@ -76,7 +76,9 @@ curl -s -H 'Content-Type: application/json' \
 |---|---|---|
 | `id` | string | **Your** ID for the device, 1–64 of `A–Z a–z 0–9 . _ -`. Unique per app. In `PUT` it comes from the URL. |
 | `name` | string | 1–64 characters, shown in the dropdown. Must not be in use by another device (`409 name_taken`). |
-| `type` | string | Picks the icon, see below. Unknown types fall back to `general_bt`. |
+| `type` | string | Picks the icon, see below. Unknown types fall back to `generic`. |
+| `icon` | string | Optional [SF Symbol](https://developer.apple.com/sf-symbols/) name, like `printer.fill`, drawn instead of the type's icon. See [Icons](#icons). |
+| `customIcon` | string | Optional name of an icon you [uploaded](#your-own-icons), drawn before `icon` and the type's icon. |
 | `level` | int | 0–100. Required unless `hasBattery` is `false`. |
 | `charging` | bool | Default `false`. Shows the bolt. |
 | `hasBattery` | bool | Default `true`. `false` shows the device without a percentage. |
@@ -91,13 +93,56 @@ Responses describe a device the same way, plus `lastUpdate` (Unix seconds).
 
 | Type | Icon |
 |---|---|
-| `general_bt` | Bluetooth (the fallback) |
+| `generic` | A generic device (the fallback) |
+| `general_bt` | Bluetooth |
 | `iPhone`, `MobilePhone`, `iPad`, `iPod`, `Watch`, `RealityDevice` | iPhone, generic phone, iPad, iPod touch, Apple Watch, Vision Pro |
 | `ap_pod_left`, `ap_pod_right`, `ap_pod_all`, `ap_case` | AirPods-style left, right and both earbuds, and the case |
 | `Headphones`, `Headset`, `Speaker` | Headphones, speaker |
 | `Keyboard`, `Mouse`, `MMouse`, `Trackpad`, `Gamepad` | Keyboard, mouse, Magic Mouse, trackpad, game controller |
 | `ApplePencil`, `Pencil` | Apple Pencil, generic stylus |
 | `mac`, `macbook`, `macbookpro`, `macbookair`, `macmini`, `macstudio`, `macpro`, `imac`, `imacpro` | Display, MacBook, Mac mini, Mac Studio, Mac Pro, iMac |
+
+### Icons
+
+A device shows the first of these that the Mac drawing it can draw:
+
+1. `customIcon`: an icon you [uploaded](#your-own-icons).
+2. `icon`: an [SF Symbol](#sf-symbols).
+3. The icon for its `type`.
+
+### SF Symbols
+
+When no type fits, send `icon` with any SF Symbol name to choose the picture yourself: `"icon":"printer.fill"`, `"icon":"powerplug.portrait.fill"`, `"icon":"gamecontroller.fill"`. Browse the names in Apple's [SF Symbols](https://developer.apple.com/sf-symbols/) app. Still send a `type`: it decides the icon wherever the symbol can't be drawn.
+
+- The name must look like one: lowercase letters and digits separated by dots, up to 128 characters. Anything else is `422 invalid_icon`.
+- Whether the symbol exists is decided where it's drawn, not when you send it. If a Mac's macOS doesn't have it (a typo, or a symbol newer than that system), that Mac shows the type's icon instead. So a newer symbol can show on this Mac and fall back on an older Mac that gets the device over Nearcast.
+- The symbol is drawn in the same single colour as the built-in icons, with its secondary layers lighter.
+- Responses include `icon` only when you sent one.
+
+### Your own icons
+
+For artwork that isn't an SF Symbol, such as your product's outline, upload it once and refer to it by name:
+
+```sh
+curl -s -X PUT http://127.0.0.1:48620/v1/icons/label-printer \
+     -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
+     -d "{\"format\":\"svg\",\"data\":\"$(base64 -i label-printer.svg)\"}"
+
+curl -s -X PUT http://127.0.0.1:48620/v1/devices/printer \
+     -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
+     -d '{"name":"Label Printer","type":"generic","icon":"printer.fill","customIcon":"label-printer","level":40}'
+```
+
+- **Format:** `pdf`, `svg` or `png`, sent base64-encoded (every body is JSON). Up to 64 KB before encoding.
+- **Checks:** the bytes must be the format named and something this Mac can draw. If not, the upload fails with `422 invalid_data`.
+- **Drawing:** only the shape counts. Icons are drawn as a template in the same single colour as the built-in icons, so they follow light and dark mode and the charging colours. Colours in the file are ignored.
+- **What to upload:** a single glyph cropped to its edges, roughly square or portrait. It is scaled to fit the icon's space, so empty margins make it look small. A vector format (PDF or SVG) stays sharp at every size. A PNG should be at least 64 pixels tall.
+- **SF Symbols templates:** a custom-symbol template exported from the SF Symbols app holds every weight and size on one sheet. Don't upload it as is: export or copy a single image of your symbol instead.
+- **Names:** 1–64 characters of `A–Z a–z 0–9 . _ -`, not starting with `.`. Each app has its own names, and an app can't use another app's icons.
+- **Replacing and deleting:** uploading under an existing name replaces that icon, also in another format, and devices using it change straight away. Deleting an icon makes its devices fall back to `icon` or the type.
+- **Pushing devices:** a device's `customIcon` must name an icon you've already uploaded, or the push fails with `422 invalid_customIcon`.
+- **Storage:** icons are kept on disk, so they survive GlassyBattery restarts (devices don't). Removing your app in Settings deletes them.
+- **Other Macs:** icons are not sent over Nearcast. Other Macs show your device with its `icon` or type icon instead.
 
 ## HTTP endpoints
 
@@ -112,12 +157,19 @@ One request per connection (`Connection: close`), bodies up to 256 KB, `Content-
 | `PUT /v1/devices/{id}` | a device, `id` optional | `200` `{device}` |
 | `POST /v1/devices:batch` | array of up to 32 devices, each with `id` | `200` `{devices: [...]}`. All or nothing: if one is invalid, none are stored. |
 | `DELETE /v1/devices/{id}` | – | `204`, or `404 not_found` |
+| `PUT /v1/icons/{name}` | `{format, data}`: `pdf`, `svg` or `png`, base64 | `200` `{icon: {name, format, bytes}}` |
+| `GET /v1/icons` | – | `200` `{icons: [{name, format, bytes}, ...]}` |
+| `DELETE /v1/icons/{name}` | – | `204`, or `404 not_found` |
 
 ```sh
 TOKEN=gbb_…
 curl -s -X PUT http://127.0.0.1:48620/v1/devices/mx-keys \
      -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
      -d '{"name":"MX Keys Mini","type":"Keyboard","level":64,"charging":false}'
+
+curl -s -X PUT http://127.0.0.1:48620/v1/devices/printer \
+     -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
+     -d '{"name":"Label Printer","type":"generic","icon":"printer.fill","level":40}'
 
 curl -s -X POST 'http://127.0.0.1:48620/v1/devices:batch' \
      -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
@@ -134,7 +186,7 @@ For apps that run continuously, the WebSocket at `streamURL` is better than poll
 - **Approval:** an app waiting for approval is told the moment it is approved.
 - **Revocation:** blocking the app or resetting its token closes the stream with a reason.
 
-The handshake follows the same Host and Origin rules as HTTP. Messages are JSON text frames.
+The handshake follows the same Host and Origin rules as HTTP. Messages are JSON text frames. Icons are uploaded over HTTP only, with the same token; devices sent on the stream can then use them as `customIcon`.
 
 **1. Say hello within 5 seconds**, or the stream is closed:
 
@@ -173,13 +225,13 @@ Every error body is `{"error":{"code":"…","message":"…"}}`. Switch on `code`
 | 403 | `pending` | Waiting for approval in Allow List mode |
 | 403 | `blocked` | The user blocked this app |
 | 403 | `forbidden_host`, `forbidden_origin` | Non-loopback `Host`, or a browser request |
-| 404 | `not_found`, `no_such_route` | No such device / endpoint |
+| 404 | `not_found`, `no_such_route` | No such device or icon / endpoint |
 | 405 | `method_not_allowed` | Wrong method for the endpoint |
 | 409 | `name_taken` | Another device already has that name |
 | 411 | `length_required` | Chunked body |
 | 413 | `payload_too_large` | Over 256 KB, or headers over 16 KB |
 | 415 | `unsupported_media_type` | Body isn't `application/json` |
-| 422 | `invalid_body`, `invalid_<field>`, `too_many_devices` | Validation failed |
+| 422 | `invalid_body`, `invalid_<field>` (such as `invalid_icon`, `invalid_customIcon`, `invalid_data`), `too_many_devices`, `too_many_icons` | Validation failed |
 | 429 | `too_many_clients` | 64 apps are already registered |
 
 Stream-only codes: `hello_required`, `hello_timeout`, `already_ready`, `unknown_op`.
@@ -188,14 +240,14 @@ Stream-only codes: `hello_required`, `hello_timeout`, `already_ready`, `unknown_
 
 - A device stays listed while it keeps being updated. Like every other source it disappears after GlassyBattery's *disappear after* time (20 minutes by default) without an update, and the dropdown marks it ⚠︎ after 10 minutes. HTTP clients should push at least every few minutes; stream clients are cleaned up on disconnect (see `onDisconnect`).
 - Bridged devices are shared with your other Macs over Nearcast (when Nearcast is on) unless the user turns off **Nearcast** for that app in the app list.
-- Limits: 64 apps, 32 devices per app, 32 devices per batch, 32 concurrent HTTP connections with a 10-second timeout, 32 open streams.
-- Devices live in memory. After GlassyBattery restarts, apps push them again; registrations and tokens survive.
+- Limits: 64 apps, 32 devices per app, 32 devices per batch, 32 uploaded icons per app (64 KB each), 32 concurrent HTTP connections with a 10-second timeout, 32 open streams.
+- Devices live in memory. After GlassyBattery restarts, apps push them again; registrations, tokens and uploaded icons survive.
 
 ## Examples
 
 In [`Examples/BatteryBridge`](../Examples/BatteryBridge):
 
 - [`python/glassybridge.py`](../Examples/BatteryBridge/python/glassybridge.py) is a standard-library HTTP client, usable as a module or from the shell:
-  `python3 glassybridge.py push --id ups --name "Office UPS" --level 87`.
+  `python3 glassybridge.py push --id ups --name "Office UPS" --level 87 --icon powerplug.portrait.fill`, and `upload-icon --name ups --file ups.svg` then `push … --custom-icon ups` for your own artwork.
 - [`swift/BridgeStreamExample.swift`](../Examples/BatteryBridge/swift/BridgeStreamExample.swift) is a dependency-free stream client that reports a simulated headset until you press Ctrl-C:
   `swift BridgeStreamExample.swift`.
